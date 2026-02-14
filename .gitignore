@@ -1,2 +1,9 @@
 **/node_modules/
 **/dist/
+
+# Generated test files
+playwright-report/
+test-results/
+
+# System files
+.sisyphus/
