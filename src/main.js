@@ -25,7 +25,8 @@ const createCOGSource = () => {
   return new GeoTIFFSource({
     sources: [{
       url: COG_URL,
-      bands: [1, 2, 3]
+      bands: [1, 2, 3],
+      nodata: 0
     }],
     normalize: true,
     convertToRGB: false,
@@ -40,6 +41,7 @@ const initMap = async () => {
   showLoading()
 
   try {
+    const viewProjection = 'EPSG:3857'
     const cogSource = createCOGSource()
 
     cogSource.on('change', () => {
@@ -57,7 +59,6 @@ const initMap = async () => {
     const cogProjection = cogView.projection
     const cogExtent = cogView.extent
 
-    const viewProjection = 'EPSG:3857'
     const extent = cogExtent ? transformExtent(cogExtent, cogProjection, viewProjection) : undefined
     const center = cogView.center ? transform(cogView.center, cogProjection, viewProjection) : undefined
 
@@ -71,7 +72,8 @@ const initMap = async () => {
 
     const cogLayer = new WebGLTileLayer({
       source: cogSource,
-      opacity: 1
+      opacity: 1,
+      extent: extent
     })
 
     const osmLayer = new TileLayer({
