@@ -4,7 +4,7 @@ import WebGLTileLayer from 'ol/layer/WebGLTile'
 import GeoTIFFSource from 'ol/source/GeoTIFF'
 import OSM from 'ol/source/OSM'
 import { defaults as defaultControls } from 'ol/control'
-import { transform } from 'ol/proj'
+import { transform, transformExtent } from 'ol/proj'
 import 'ol/ol.css'
 
 const COG_URL = 'https://storage.googleapis.com/pdd-stac/disasters/hurricane-harvey/0831/SkySat_20170831T195552Z_RGB.tif'
@@ -54,12 +54,18 @@ const initMap = async () => {
     })
 
     const cogView = await cogSource.getView()
-    const extent = cogView.extent
-    const projection = cogView.projection
+    const cogProjection = cogView.projection
+    const cogExtent = cogView.extent
+
+    const viewProjection = 'EPSG:3857'
+    const extent = cogExtent ? transformExtent(cogExtent, cogProjection, viewProjection) : undefined
+    const center = cogView.center ? transform(cogView.center, cogProjection, viewProjection) : undefined
 
     console.log('COG Info:', {
-      extent,
-      projection: projection?.getCode(),
+      cogExtent,
+      cogProjection: cogProjection?.getCode(),
+      viewExtent: extent,
+      viewProjection,
       zoom: cogView.zoom
     })
 
@@ -74,8 +80,8 @@ const initMap = async () => {
     })
 
     const view = new View({
-      projection: projection,
-      center: cogView.center,
+      projection: viewProjection,
+      center: center,
       zoom: cogView.zoom || 12,
       minZoom: 8,
       maxZoom: 20
@@ -133,7 +139,7 @@ const initMap = async () => {
         mapCoordsEl.textContent = `X: ${mapX}, Y: ${mapY}`
         
         try {
-          const lonLat = transform(coord, projection, 'EPSG:4326')
+          const lonLat = transform(coord, viewProjection, 'EPSG:4326')
           const lon = lonLat[0].toFixed(6)
           const lat = lonLat[1].toFixed(6)
           wgs84CoordsEl.textContent = `경도: ${lon}°, 위도: ${lat}°`
