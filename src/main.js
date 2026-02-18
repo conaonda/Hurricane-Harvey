@@ -1,70 +1,15 @@
 import { Map, View } from 'ol'
 import TileLayer from 'ol/layer/Tile'
-import WebGLTileLayer from 'ol/layer/WebGLTile'
-import GeoTIFFSource from 'ol/source/GeoTIFF'
 import OSM from 'ol/source/OSM'
 import { defaults as defaultControls } from 'ol/control'
-import TileGrid from 'ol/tilegrid/TileGrid.js'
-import { transform, transformExtent, get as getProjection } from 'ol/proj'
-import { fromUrl as tiffFromUrl } from 'geotiff'
+import { transform } from 'ol/proj'
+import { createCOGLayer } from './cogLayer.js'
 import 'ol/ol.css'
 
 const COG_URL = 'https://storage.googleapis.com/pdd-stac/disasters/hurricane-harvey/0831/SkySat_20170831T195552Z_RGB.tif'
-const COG_BANDS = [1, 2, 3]
 
 const urlParams = new URLSearchParams(window.location.search)
 const PROJECTION_MODE = urlParams.get('mode') || 'affine'  // 'affine' | 'reproject'
-
-const applyAffineBypass = (cogSource, cogView, viewProjection) => {
-  const srcExtent = cogView.extent
-  const srcProj = cogView.projection
-  const srcTileGrid = cogSource.tileGrid
-
-  const dstExtent = transformExtent(srcExtent, srcProj, viewProjection)
-
-  const scaleX = (dstExtent[2] - dstExtent[0]) / (srcExtent[2] - srcExtent[0])
-  const srcResolutions = srcTileGrid.getResolutions()
-  const dstResolutions = srcResolutions.map(r => r * scaleX)
-
-  const tileSize = srcTileGrid.getTileSize(srcTileGrid.getMinZoom())
-
-  const dstTileGrid = new TileGrid({
-    extent: dstExtent,
-    minZoom: srcTileGrid.getMinZoom(),
-    resolutions: dstResolutions,
-    tileSize: tileSize
-  })
-
-  cogSource.projection = getProjection(viewProjection)
-  cogSource.tileGrid = dstTileGrid
-  cogSource.tileGridForProjection_ = {}
-
-  console.log('Affine bypass applied:', {
-    from: srcProj.getCode(),
-    to: viewProjection,
-    scaleX: scaleX.toFixed(6),
-    transformMatrix: cogSource.transformMatrix
-  })
-}
-
-const getMinMaxFromOverview = async (tiff, bands) => {
-  const count = await tiff.getImageCount()
-  const image = await tiff.getImage(count - 1)
-  const rasters = await image.readRasters({ samples: bands.map(b => b - 1) })
-
-  const stats = []
-  for (const band of rasters) {
-    let min = Infinity, max = -Infinity
-    for (let i = 0; i < band.length; i++) {
-      const v = band[i]
-      if (v === 0) continue
-      if (v < min) min = v
-      if (v > max) max = v
-    }
-    stats.push({ min, max })
-  }
-  return stats
-}
 
 const loadingEl = document.getElementById('loading')
 const errorEl = document.getElementById('error')
@@ -78,28 +23,14 @@ const showError = (message) => {
   hideLoading()
 }
 
-const createCOGSource = () => {
-  return new GeoTIFFSource({
-    sources: [{
-      url: COG_URL,
-      bands: COG_BANDS,
-      nodata: 0
-    }],
-    normalize: false,
-    convertToRGB: false,
-    opaque: false,
-    sourceOptions: {
-      allowFullFile: false
-    }
-  })
-}
-
 const initMap = async () => {
   showLoading()
 
   try {
     const viewProjection = 'EPSG:3857'
-    const cogSource = createCOGSource()
+
+    const { layer: cogLayer, source: cogSource, extent, center, zoom } =
+      await createCOGLayer({ url: COG_URL, projectionMode: PROJECTION_MODE, viewProjection })
 
     cogSource.on('change', () => {
       if (cogSource.getState() === 'ready') {
@@ -112,45 +43,6 @@ const initMap = async () => {
       }
     })
 
-    const tiff = await tiffFromUrl(COG_URL)
-    const [cogView, stats] = await Promise.all([
-      cogSource.getView(),
-      getMinMaxFromOverview(tiff, COG_BANDS)
-    ])
-    const cogProjection = cogView.projection
-    const cogExtent = cogView.extent
-
-    if (PROJECTION_MODE === 'affine') {
-      applyAffineBypass(cogSource, cogView, viewProjection)
-    }
-
-    const extent = cogExtent ? transformExtent(cogExtent, cogProjection, viewProjection) : undefined
-    const center = cogView.center ? transform(cogView.center, cogProjection, viewProjection) : undefined
-
-    console.log('COG Info:', {
-      cogExtent,
-      cogProjection: cogProjection?.getCode(),
-      viewExtent: extent,
-      viewProjection,
-      zoom: cogView.zoom,
-      projectionMode: PROJECTION_MODE
-    })
-    console.log('Band min/max stats:', stats)
-
-    const cogLayer = new WebGLTileLayer({
-      source: cogSource,
-      style: {
-        color: [
-          'array',
-          ['/', ['-', ['band', 1], stats[0].min], stats[0].max - stats[0].min],
-          ['/', ['-', ['band', 2], stats[1].min], stats[1].max - stats[1].min],
-          ['/', ['-', ['band', 3], stats[2].min], stats[2].max - stats[2].min],
-          ['/', ['band', 4], 255]
-        ]
-      },
-      extent: extent
-    })
-
     const osmLayer = new TileLayer({
       source: new OSM(),
       opacity: 0.3
@@ -159,7 +51,7 @@ const initMap = async () => {
     const view = new View({
       projection: viewProjection,
       center: center,
-      zoom: cogView.zoom || 12,
+      zoom: zoom || 12,
       minZoom: 8,
       maxZoom: 20
     })
@@ -209,12 +101,12 @@ const initMap = async () => {
 
     map.on('pointermove', (event) => {
       const coord = event.coordinate
-      
+
       if (coord) {
         const mapX = coord[0].toFixed(2)
         const mapY = coord[1].toFixed(2)
         mapCoordsEl.textContent = `X: ${mapX}, Y: ${mapY}`
-        
+
         try {
           const lonLat = transform(coord, viewProjection, 'EPSG:4326')
           const lon = lonLat[0].toFixed(6)
