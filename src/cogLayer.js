@@ -15,13 +15,13 @@ const applyAffineBypass = (cogSource, cogView, viewProjection) => {
   const srcResolutions = srcTileGrid.getResolutions()
   const dstResolutions = srcResolutions.map(r => r * scaleX)
 
-  const tileSize = srcTileGrid.getTileSize(srcTileGrid.getMinZoom())
+  const tileSizes = srcResolutions.map((_, z) => srcTileGrid.getTileSize(z))
 
   const dstTileGrid = new TileGrid({
     extent: dstExtent,
     minZoom: srcTileGrid.getMinZoom(),
     resolutions: dstResolutions,
-    tileSize: tileSize
+    tileSizes: tileSizes
   })
 
   cogSource.projection = getProjection(viewProjection)
