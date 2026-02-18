@@ -45,7 +45,7 @@ const applyAffineBypass = (cogSource, cogView, viewProjection, targetTileSize) =
   })
 }
 
-const getMinMaxFromOverview = async (tiff, bands) => {
+export const getMinMaxFromOverview = async (tiff, bands) => {
   const count = await tiff.getImageCount()
   const image = await tiff.getImage(count - 1)
   const rasters = await image.readRasters({ samples: bands.map(b => b - 1) })
@@ -64,7 +64,7 @@ const getMinMaxFromOverview = async (tiff, bands) => {
   return stats
 }
 
-const detectBands = async (tiff) => {
+export const detectBands = async (tiff) => {
   const image = await tiff.getImage(0)
   const samplesPerPixel = image.getSamplesPerPixel()
   const photometric = image.fileDirectory.PhotometricInterpretation

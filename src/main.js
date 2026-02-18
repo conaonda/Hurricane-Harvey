@@ -4,12 +4,13 @@ import OSM from 'ol/source/OSM'
 import { defaults as defaultControls } from 'ol/control'
 import { transform } from 'ol/proj'
 import { createCOGLayer } from './cogLayer.js'
+import { createCOGImageLayer } from './cogImageLayer.js'
 import 'ol/ol.css'
 
 const COG_URL = 'https://storage.googleapis.com/pdd-stac/disasters/hurricane-harvey/0831/SkySat_20170831T195552Z_RGB.tif'
 
 const urlParams = new URLSearchParams(window.location.search)
-const PROJECTION_MODE = urlParams.get('mode') || 'affine'  // 'affine' | 'reproject'
+const PROJECTION_MODE = urlParams.get('mode') || 'affine'  // 'affine' | 'reproject' | 'image'
 const TARGET_TILE_SIZE = parseInt(urlParams.get('tileSize'), 10) || 256
 
 const loadingEl = document.getElementById('loading')
@@ -30,22 +31,37 @@ const initMap = async () => {
   try {
     const viewProjection = 'EPSG:3857'
 
-    const { layer: cogLayer, source: cogSource, extent, center, zoom } =
-      await createCOGLayer({ url: COG_URL, projectionMode: PROJECTION_MODE, viewProjection, targetTileSize: TARGET_TILE_SIZE })
+    let cogLayer, cogSource, extent, center, zoom
 
-    cogSource.on('change', () => {
+    if (PROJECTION_MODE === 'image') {
+      const result = await createCOGImageLayer({ url: COG_URL, viewProjection })
+      cogLayer = result.layer
+      cogSource = result.source
+      extent = result.extent
+      center = result.center
+      hideLoading()
+    } else {
+      const result = await createCOGLayer({ url: COG_URL, projectionMode: PROJECTION_MODE, viewProjection, targetTileSize: TARGET_TILE_SIZE })
+      cogLayer = result.layer
+      cogSource = result.source
+      extent = result.extent
+      center = result.center
+      zoom = result.zoom
+
+      cogSource.on('change', () => {
+        if (cogSource.getState() === 'ready') {
+          hideLoading()
+        }
+        if (cogSource.getState() === 'error') {
+          const error = cogSource.getError()
+          console.error('COG Error:', error)
+          showError('COG 영상을 로드하는 중 오류가 발생했습니다.')
+        }
+      })
+
       if (cogSource.getState() === 'ready') {
         hideLoading()
       }
-      if (cogSource.getState() === 'error') {
-        const error = cogSource.getError()
-        console.error('COG Error:', error)
-        showError('COG 영상을 로드하는 중 오류가 발생했습니다.')
-      }
-    })
-
-    if (cogSource.getState() === 'ready') {
-      hideLoading()
     }
 
     const osmLayer = new TileLayer({
