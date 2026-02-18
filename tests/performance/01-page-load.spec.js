@@ -28,7 +28,7 @@ test.describe('첫 화면 로딩 성능 측정', () => {
     
     const navigationStart = Date.now();
     
-    await page.goto('/', { waitUntil: 'networkidle' });
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
     
     const pageLoadTime = Date.now() - navigationStart;
     
@@ -61,11 +61,12 @@ test.describe('첫 화면 로딩 성능 측정', () => {
             metrics.cogReadyTime = performance.now() - startTime;
           }
           
-          if (cogSource && cogSource.getTileCache) {
-            const cache = cogSource.getTileCache();
-            if (cache && cache.getCount() > 0 && !metrics.firstTileRenderedTime) {
+          if (window.map && !metrics.firstTileRenderedTime && !window.__renderCompleteListening) {
+            window.__renderCompleteListening = true;
+            window.map.once('rendercomplete', () => {
               metrics.firstTileRenderedTime = performance.now() - startTime;
-            }
+            });
+            window.map.renderSync();
           }
           
           if (window.map && !metrics.mapInitializedTime) {

@@ -1,399 +1,177 @@
-# 성능 테스트 실행 및 결과 해석 가이드
+# 테스트 가이드
 
-**작성일**: 2026-02-14  
-**대상**: OpenLayers COG Viewer 성능 테스트
+## 1. 개요
+
+Playwright 기반 성능 테스트로 페이지 로딩, 지도 인터랙션, COG 렌더링 성능을 측정하고 회귀를 감지한다.
+
+### 테스트 파일
+
+| 파일 | 측정 내용 |
+|------|-----------|
+| `01-page-load.spec.js` | FCP, LCP, TTFB, COG Ready, 첫 타일 렌더링, 로딩 상태 전환 |
+| `02-map-pan.spec.js` | 방향별 팬 속도, FPS, 일관성 (CV < 0.3) |
+| `03-map-zoom.spec.js` | 줌 인/아웃, 연속/급속 줌, 더블클릭 줌 |
+| `04-detailed-state.spec.js` | HTTP 요청 기록, COG Range 요청, OpenLayers 전체 상태 스냅샷 |
 
 ---
 
-## 🚀 테스트 실행 방법
+## 2. 테스트 실행
 
-### 1. 전제 조건
+### 사전 준비
 
 ```bash
-# 의존성 설치 확인
 npm install
-
-# Playwright 브라우저 설치 확인
-npx playwright install chromium
-
-# 빌드 확인
+npx playwright install
 npm run build
 ```
 
-### 2. 기본 실행 명령어
+### 스크립트
+
+| 스크립트 | 설명 |
+|----------|------|
+| `npm run test:performance` | 전체 성능 테스트 (headless) |
+| `npm run test:performance:report` | HTML 리포트 생성 |
+| `npm run test:performance:ui` | Playwright UI 모드 |
+| `npm run test:performance:headed` | 브라우저 표시 모드 |
+| `npm run test:state` | 상태 기록 테스트만 실행 |
+| `npm run test:state:headed` | 상태 기록 (브라우저 표시) |
+
+모든 스크립트는 내부적으로 `vite preview` (포트 4173)를 시작하고 테스트 후 종료한다.
+
+### 개별 테스트 실행
 
 ```bash
-# 모든 성능 테스트 실행
-npm run test:performance
-
-# 또는
-npx playwright test tests/performance
-```
-
-### 3. 특정 테스트만 실행
-
-```bash
-# 첫 화면 로딩 테스트만
+# 특정 파일만
 npx playwright test tests/performance/01-page-load.spec.js
 
-# 지도 이동 테스트만
-npx playwright test tests/performance/02-map-pan.spec.js
-
-# 지도 확대/축소 테스트만
-npx playwright test tests/performance/03-map-zoom.spec.js
-```
-
-### 4. UI 모드로 실행 (시각적 확인)
-
-```bash
-# headed 모드 (브라우저 표시)
-npx playwright test tests/performance --headed
-
-# UI 모드 (Playwright UI)
-npx playwright test tests/performance --ui
-```
-
-### 5. 리포트 생성
-
-```bash
-# HTML 리포트 생성
-npm run test:performance:report
-
-# 결과 확인
-open playwright-report/index.html
-```
-
----
-
-## 📊 테스트 결과 해석
-
-### 1. 성공적인 실행 결과 예시
-
-```
-Running 13 tests using 1 worker
-
-  ✓  [chromium] › 01-page-load.spec.js:6:3 › 첫 화면 로딩 성능 측정 › 초기 페이지 로드 메트릭 측정 (4.5s)
-=== 첫 화면 로딩 성능 결과 ===
-페이지 로드 시간: 2456ms
-FCP: 823.45ms
-LCP: 2156.78ms
-COG Ready: 3245.67ms
-First Tile Rendered: 3567.89ms
-TTFB: 78.23ms
-Total Load Time: 3987.45ms
-
-  ✓  [chromium] › 01-page-load.spec.js:139:3 › 첫 화면 로딩 성능 측정 › 로딩 상태 변화 추적 (6.2s)
-=== 로딩 상태 변화 ===
-로딩 표시 시작: 45.67ms
-로딩 표시 종료: 3245.23ms
-로딩 표시 지속: 3199.56ms
-
-  ✓  [chromium] › 02-map-pan.spec.js:15:3 › 지도 이동 (Pan) 성능 측정 › 수평 이동 (Pan Right) 성능 측정 (3.8s)
-=== 수평 이동 (오른쪽) 성능 ===
-드래그 소요: 320.45ms
-렌더링 소요: 540.23ms
-총 소요 시간: 860.68ms
-평균 FPS: 47
-최소 FPS: 38
-
-... (나머지 테스트 결과)
-
-13 passed (35.6s)
-```
-
-### 2. 결과 해석 기준
-
-#### 첫 화면 로딩 결과 해석
-
-| 측정값 | 예시 값 | 기준 | 평가 | 의미 |
-|--------|---------|------|------|------|
-| 페이지 로드 시간 | 2456ms | < 5000ms | ✅ 우수 | 초기 HTML/JS 로딩 완료 |
-| FCP | 823ms | < 1500ms | ✅ 우수 | 첫 콘텐츠 표시 |
-| LCP | 2157ms | < 3000ms | ✅ 우수 | 주요 콘텐츠 표시 |
-| COG Ready | 3246ms | < 10000ms | ✅ 우수 | COG 메타데이터 로드 완료 |
-| First Tile Rendered | 3568ms | < 12000ms | ✅ 우수 | 첫 타일 표시 |
-| TTFB | 78ms | < 500ms | ✅ 우수 | 서버 응답 속도 |
-| Total Load Time | 3987ms | < 15000ms | ✅ 우수 | 전체 로딩 완료 |
-
-**해석:**
-- 모든 값이 기준 이내이면 성능 우수
-- COG Ready가 10초 이상 걸리면 네트워크 문제 또는 COG 서버 문제
-- TTFB가 높으면 CDN 또는 서버 응답 지연
-
-#### 지도 이동 (Pan) 결과 해석
-
-| 측정값 | 예시 값 | 기준 | 평가 | 의미 |
-|--------|---------|------|------|------|
-| 드래그 소요 | 320ms | < 500ms | ✅ 우수 | 사용자 입력 처리 |
-| 렌더링 소요 | 540ms | < 1500ms | ✅ 우수 | 새 타일 로딩 및 렌더링 |
-| 총 소요 시간 | 861ms | < 2000ms | ✅ 우수 | 전체 과정 |
-| 평균 FPS | 47fps | > 30fps | ✅ 우수 | 이동 중 부드러움 |
-| 최소 FPS | 38fps | > 20fps | ✅ 우수 | 최저 성능 |
-
-**해석:**
-- FPS가 60fps에 가까울수록 부드러운 사용자 경험
-- 렌더링 소요 시간이 길면 타일 로딩 지연
-- 대각선 이동은 20% 더 긴 시간 허용
-
-#### 지도 확대/축소 (Zoom) 결과 해석
-
-| 측정값 | 예시 값 | 기준 | 평가 | 의미 |
-|--------|---------|------|------|------|
-| 줌 동작 소요 | 400ms | < 1000ms | ✅ 우수 | 줌 애니메이션 처리 |
-| 타일 로딩 소요 | 800ms | < 2000ms | ✅ 우수 | 새 해상도 타일 로드 |
-| 총 소요 시간 | 1200ms | < 3000ms | ✅ 우수 | 전체 과정 |
-
-**해석:**
-- 타일 로딩 소요가 길면 네트워크 대역폭 부족 또는 COG 서버 응답 지연
-- 급격한 줌(5단계)은 3~5초까지 허용
-
----
-
-## ⚠️ 이상 결과 진단
-
-### 1. 로딩 시간이 길어지는 경우 (COG Ready > 10초)
-
-**증상:**
-```
-COG Ready: 15345.67ms  ❌ 기준 초과
-```
-
-**원인 분석:**
-```bash
-# 1. 네트워크 연결 확인
-ping storage.googleapis.com
-
-# 2. COG URL 접근 가능 여부 확인
-curl -I https://storage.googleapis.com/pdd-stac/disasters/hurricane-harvey/0831/SkySat_20170831T195552Z_RGB.tif
-
-# 3. 브라우저 콘솔 에러 확인
-# 테스트를 headed 모드로 실행하여 확인
-npx playwright test tests/performance/01-page-load.spec.js --headed
-```
-
-**해결 방법:**
-- 네트워크 연결 확인
-- VPN/프록시 설정 확인
-- DNS 설정 확인
-- 방화벽 설정 확인
-
-### 2. FPS가 낮은 경우 (FPS < 30)
-
-**증상:**
-```
-평균 FPS: 23  ❌ 기준 미달
-최소 FPS: 12  ❌ 기준 미달
-```
-
-**원인 분석:**
-```bash
-# 1. 시스템 리소스 확인
-# CPU/메모리 사용량 확인
-
-# 2. WebGL 상태 확인
-# 테스트를 headed 모드로 실행 후
-# Chrome: chrome://gpu/ 접속
-
-# 3. 다른 브라우저로 테스트
-npx playwright test tests/performance --project=firefox
-```
-
-**해결 방법:**
-- 백그라운드 프로세스 종료
-- GPU 가속 활성화 확인
-- 브라우저 하드웨어 가속 설정 확인
-
-### 3. 타일 로딩이 느린 경우 (Tile Load > 2초)
-
-**증상:**
-```
-타일 로딩 소요: 3500ms  ❌ 기준 초과
-```
-
-**원인 분석:**
-```bash
-# 1. 네트워크 대역폭 확인
-speedtest-cli
-
-# 2. 타일 요청 상태 확인
-# 테스트 코드에 로깅 추가하여 개별 타일 로딩 시간 확인
-```
-
-**해결 방법:**
-- 네트워크 대역폭 확보
-- 캐싱 활용 (이미 방문한 영역은 더 빠름)
-- COG 서버 상태 확인
-
----
-
-## 📈 결과 비교 및 추적
-
-### 1. 결과 파일 위치
-
-```
-test-results/
-├── performance-results.json       # 최신 결과
-├── performance-results-20260214.json  # 백업
-└── performance-report/           # HTML blob 리포트
-playwright-report/
-└── index.html                    # 최신 HTML 리포트
-```
-
-### 2. 결과 비교 방법
-
-```bash
-# 1. 기준 결과 백업
-cp test-results/performance-results.json test-results/baseline.json
-
-# 2. 변경 후 테스트 실행
-npm run test:performance
-
-# 3. 결과 비교 (수동)
-diff test-results/baseline.json test-results/performance-results.json
-
-# 4. 또는 jq로 특정 메트릭 비교
-jq '.suites[0].specs[0].tests[0].results[0].stdout' test-results/baseline.json
-jq '.suites[0].specs[0].tests[0].results[0].stdout' test-results/performance-results.json
-```
-
-### 3. CI/CD에서 결과 저장
-
-```yaml
-# .github/workflows/performance.yml 예시
-- name: Store performance results
-  uses: actions/upload-artifact@v4
-  with:
-    name: performance-results-${{ github.run_id }}
-    path: |
-      test-results/performance-results.json
-      playwright-report/
-```
-
----
-
-## 🔧 테스트 실패 시 디버깅
-
-### 1. 테스트 코드 디버깅
-
-```bash
-# 1. 특정 테스트만 실행하며 디버깅
+# 디버그 모드 (Playwright Inspector)
 npx playwright test tests/performance/01-page-load.spec.js --debug
 
-# 2. headed 모드로 실행하며 콘솔 로그 확인
-npx playwright test tests/performance/01-page-load.spec.js --headed --reporter=line
-
-# 3. slowmo 모드로 실행하며 시각적 확인
+# 슬로우 모션
 npx playwright test tests/performance --headed --slowmo=1000
 ```
 
-### 2. 애플리케이션 디버깅
-
-```bash
-# 1. 개발 서버 실행
-npm run dev
-
-# 2. 브라우저에서 수동 테스트
-# http://localhost:5173 접속
-
-# 3. 브라우저 개발자 도구에서
-# - Network 탭: 타일 로딩 확인
-# - Performance 탭: FPS 및 렌더링 확인
-# - Console: 에러 메시지 확인
-```
-
-### 3. 로그 분석
-
-```bash
-# 1. 테스트 출력 저장
-npm run test:performance 2>&1 | tee test-output.log
-
-# 2. 특정 패턴 검색
-grep "COG Ready" test-output.log
-grep "FPS" test-output.log
-grep "Error" test-output.log
-```
+> **주의:** 개별 실행 시 `vite preview --port 4173`이 별도로 실행 중이어야 한다.
 
 ---
 
-## 📝 테스트 결과 템플릿
+## 3. 성능 메트릭 및 기준값
 
-### 성능 테스트 결과 보고서 (예시)
+### 메트릭 정의
 
-```markdown
-# 성능 테스트 결과 보고서
+| 메트릭 | 정의 | 측정 API |
+|--------|------|----------|
+| TTFB | 첫 바이트 수신 시점 | Navigation Timing API |
+| FCP | 첫 콘텐츠 렌더링 시점 | PerformanceObserver (`paint`) |
+| LCP | 최대 콘텐츠 렌더링 시점 | PerformanceObserver (`largest-contentful-paint`) |
+| COG Ready | `cogSource.getState() === 'ready'` 도달 시점 | OpenLayers `change` 이벤트 |
+| First Tile | 타일 캐시에 첫 타일 등장 시점 | `getTileCache().getCount() > 0` |
+| FPS | 인터랙션 중 프레임 레이트 | `requestAnimationFrame` 카운터 |
 
-## 실행 정보
-- **날짜**: 2026-02-14
-- **버전**: 1.0.0
-- **환경**: CI / 로컬
-- **브라우저**: Chromium 120
-- **네트워크**: WiFi (100Mbps)
+### 기준값
 
-## 요약
-| 항목 | 결과 | 상태 |
-|------|------|------|
-| 전체 테스트 | 13/13 통과 | ✅ |
-| 첫 화면 로딩 | 2.5초 (기준 5초) | ✅ |
-| 지도 이동 | 0.9초 (기준 2초) | ✅ |
-| 지도 줌 | 1.2초 (기준 3초) | ✅ |
+**페이지 로드:**
 
-## 상세 결과
+| 메트릭 | 통과 기준 | 목표 | 우수 |
+|--------|-----------|------|------|
+| FCP | < 3s | < 1.5s | < 1s |
+| LCP | < 4s | < 2.5s | < 1.5s |
+| TTFB | < 500ms | < 200ms | < 100ms |
+| COG Ready | < 10s | < 5s | < 3s |
+| Total Load | < 15s | < 5s | < 3s |
 
-### 첫 화면 로딩
-- FCP: 823ms (기준 < 1500ms) ✅
-- LCP: 2157ms (기준 < 3000ms) ✅
-- COG Ready: 3246ms (기준 < 10000ms) ✅
+**팬 (Pan):**
 
-### 지도 이동
-- 평균 소요: 861ms (기준 < 2000ms) ✅
-- 평균 FPS: 47fps (기준 > 30fps) ✅
+| 메트릭 | 통과 기준 |
+|--------|-----------|
+| Total Duration | < 2,000ms (대각선: < 2,500ms) |
+| Avg FPS | > 30fps |
+| 일관성 (CV) | < 0.3 |
 
-### 지도 확대/축소
-- 평균 소요: 1200ms (기준 < 3000ms) ✅
-- 타일 로딩: 800ms (기준 < 2000ms) ✅
+**줌 (Zoom):**
 
-## 결론
-모든 성능 기준 충족. 변경 없이 배포 가능.
-```
+| 메트릭 | 통과 기준 |
+|--------|-----------|
+| 단일 줌 | < 3,000ms |
+| 타일 로드 | < 2,000ms |
+| 급속 줌 (5단계) | < 5,000ms |
+| 연속 줌 평균 | < 2,000ms |
 
----
+### 결과 해석
 
-## 🎯 자주 묻는 질문 (FAQ)
-
-### Q1: 테스트가 일관되지 않은 결과를 보입니다.
-
-**A**: 다음을 확인하세요:
-1. 백그라운드 프로세스 종료
-2. 네트워크 상태 확인
-3. `--retries=3` 옵션으로 여러 번 실행
-4. 동일한 환경에서 5회 이상 실행하여 평균 계산
-
-### Q2: CI에서만 테스트가 실패합니다.
-
-**A**: 다음을 확인하세요:
-1. CI 환경의 메모리/CPU 사양
-2. Playwright의 headless 모드 설정
-3. `workers: 1` 설정 (병렬 실행 방지)
-4. 타임아웃 값 조정
-
-### Q3: FPS 측정이 정확하지 않습니다.
-
-**A**: FPS 측정은 환경에 따라 변동됩니다:
-1. headed 모드 vs headless 모드 차이
-2. GPU 가속 활성화 여부
-3. 화면 해상도
-4. 브라우저 버전
-
-정확한 측정을 위해서는 동일한 환경에서 여러 번 측정하여 평균을 사용하세요.
-
-### Q4: 기준값을 어떻게 설정해야 하나요?
-
-**A**: 다음 단계를 따르세요:
-1. 현재 구현체에서 10회 이상 테스트 실행
-2. 각 메트릭의 평균과 표준편차 계산
-3. 평균의 150~200%를 기준값으로 설정
-4. 사용자 경험을 고려하여 추가 여유분 설정
+- **정상:** 모든 메트릭이 통과 기준 이내
+- **주의:** 통과하지만 목표 미달 — 네트워크/환경 확인 필요
+- **이상:** 통과 기준 초과 — 코드 변경 또는 환경 문제 조사 필요
 
 ---
 
-**이 가이드를 따라 테스트를 실행하고 결과를 해석하세요. 이상이 발견되면 `docs/test-baseline.md`의 대응 가이드를 참고하세요.**
+## 4. 상태 기록 테스트 (04-detailed-state)
+
+### 기록 항목
+
+`04-detailed-state.spec.js`는 페이지 로드 후 다음을 JSON 파일로 저장한다:
+
+1. **HTTP 요청/응답** — URL, 메서드, 헤더 (`Range` 포함), 상태 코드, 타임스탬프
+2. **COG Range 요청** — `.tif` URL + `Range` 헤더 (예: `bytes=0-65535`)
+3. **OpenLayers View** — projection, center, zoom, resolution, extent, rotation
+4. **레이어 목록** — 타입 (`TileLayer`/`WebGLTileLayer`), 소스 타입, 상태, opacity
+5. **타일 캐시** — 캐시된 타일 수, 타일 좌표 (z/x/y)
+6. **COG 소스 설정** — state, url, bands, normalize, convertToRGB, opaque
+
+결과 파일: `test-results/initial-load-state-{timestamp}.json`
+
+### 베이스라인 비교
+
+1. 테스트를 실행하여 상태 JSON 생성
+2. 결과를 `baseline-state.json`으로 복사
+3. 이후 실행 결과와 비교
+
+**비교 허용 오차:**
+
+| 필드 | 허용 오차 |
+|------|-----------|
+| projectionCode | 정확히 일치 |
+| center | +/-0.01 |
+| zoom | +/-0.1 |
+| tileCount | +/-5 |
+| cogSourceState | 정확히 일치 ("ready") |
+| cogRangeRequests | > 0 |
+
+### 핵심 검증 포인트
+
+- `cogSource.state === 'ready'`
+- center 좌표가 2개 요소 배열
+- zoom이 5~25 범위
+- layerCount > 0
+- projection이 존재
+
+---
+
+## 5. 문제 해결
+
+### 증상별 진단
+
+| 증상 | 원인 및 조치 |
+|------|-------------|
+| COG Ready > 30s | 네트워크 확인, COG URL 접근성 확인, GCS 상태 확인, CORS 설정 확인 |
+| 팬 > 2s | 타일 네트워크 지연 확인, WebGL 컨텍스트 확인, 메모리 압박 확인 |
+| 줌 > 3s | 줌 레벨별 타일 로드 시간 확인, 캐시 히트 비율 확인, GPU 메모리 확인 |
+| FPS < 30 | 백그라운드 프로세스 종료, GPU 가속 확인, headed/headless 모드 차이 확인 |
+| HTTP 요청 미기록 | `page.route()`를 `page.goto()` 전에 설정했는지 확인 |
+| 타일 캐시 0 | `source.getTileCache()` vs `source.tileCache_` 접근자 확인 (OL 버전 차이) |
+| COG Range 요청 미감지 | `.tif` 경로에 `Cache-Control: no-cache` 헤더 오버라이드 시도 |
+| 결과 불일치 | 백그라운드 앱 종료, 네트워크 안정 확인, 5회+ 실행 후 평균값 사용 |
+
+### 결과 파일 위치
+
+| 경로 | 내용 |
+|------|------|
+| `test-results/` | JSON 결과, 스크린샷, 상태 스냅샷 |
+| `playwright-report/` | HTML 리포트 (`npx playwright show-report`로 열기) |
+
+### 환경 요구사항
+
+- Chromium 120+, WebGL 2.0 지원
+- 네트워크: WiFi 100Mbps+ 권장 (4G/3G 환경은 임계값 증가 필요)
+- 하드웨어: 4코어+, RAM 8GB+
+- `workers: 1` (순차 실행)으로 안정적인 측정 보장

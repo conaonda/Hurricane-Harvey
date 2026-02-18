@@ -100,12 +100,8 @@ class PerformanceMetricsCollector {
       
       if (cogSource) {
         metrics.sourceState = cogSource.getState();
-        
-        if (cogSource.getTileCache) {
-          const cache = cogSource.getTileCache();
-          metrics.tileCacheCount = cache.getCount();
-        }
-        
+        metrics.tileCacheCount = null;
+
         if (cogSource.getKeys) {
           metrics.sourceKeys = cogSource.getKeys();
         }
@@ -126,61 +122,4 @@ class PerformanceMetricsCollector {
   }
 }
 
-const networkConditions = {
-  wifi: { 
-    downloadThroughput: 100 * 1024 * 1024 / 8, 
-    uploadThroughput: 50 * 1024 * 1024 / 8, 
-    latency: 2 
-  },
-  '4g': { 
-    downloadThroughput: 20 * 1024 * 1024 / 8, 
-    uploadThroughput: 10 * 1024 * 1024 / 8, 
-    latency: 50 
-  },
-  '3g': { 
-    downloadThroughput: 1.6 * 1024 * 1024 / 8, 
-    uploadThroughput: 768 * 1024 / 8, 
-    latency: 300 
-  }
-};
-
-async function emulateNetwork(page, condition) {
-  if (!networkConditions[condition]) {
-    throw new Error(`Unknown network condition: ${condition}`);
-  }
-  
-  const client = await page.context().newCDPSession(page);
-  await client.send('Network.emulateNetworkConditions', {
-    offline: false,
-    downloadThroughput: networkConditions[condition].downloadThroughput,
-    uploadThroughput: networkConditions[condition].uploadThroughput,
-    latency: networkConditions[condition].latency
-  });
-}
-
-function formatDuration(ms) {
-  if (ms < 1000) {
-    return `${ms.toFixed(0)}ms`;
-  }
-  return `${(ms / 1000).toFixed(2)}s`;
-}
-
-function calculateStats(values) {
-  if (values.length === 0) return null;
-  
-  const avg = values.reduce((a, b) => a + b, 0) / values.length;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const sorted = [...values].sort((a, b) => a - b);
-  const p95 = sorted[Math.floor(sorted.length * 0.95)] || max;
-  
-  return { avg, min, max, p95 };
-}
-
-export {
-  PerformanceMetricsCollector,
-  emulateNetwork,
-  networkConditions,
-  formatDuration,
-  calculateStats
-};
+export { PerformanceMetricsCollector };

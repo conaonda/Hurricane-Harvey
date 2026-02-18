@@ -18,7 +18,7 @@ export default defineConfig({
   ],
   
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: 'http://localhost:4173',
     
     trace: 'on-first-retry',
     
@@ -34,11 +34,8 @@ export default defineConfig({
         '--disable-dev-shm-usage',
         '--no-sandbox',
         '--disable-setuid-sandbox',
-        '--disable-accelerated-2d-canvas',
         '--no-first-run',
-        '--no-zygote',
-        '--single-process',
-        '--disable-gpu'
+        '--no-zygote'
       ]
     }
   },
@@ -50,26 +47,9 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
         viewport: { width: 1280, height: 720 }
       },
-    },
-    {
-      name: 'chromium-slow-network',
-      use: { 
-        ...devices['Desktop Chrome'],
-        viewport: { width: 1280, height: 720 }
-      },
-      testMatch: /.*slow-network\.spec\.js/
     }
   ],
-  
-  webServer: {
-    command: 'npm run preview',
-    url: 'http://localhost:5173',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120 * 1000,
-    stdout: 'pipe',
-    stderr: 'pipe'
-  },
-  
+
   timeout: 120 * 1000,
   expect: {
     timeout: 30000

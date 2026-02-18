@@ -30,7 +30,7 @@ npm install
 npm run dev
 
 # 브라우저에서 열기
-# http://localhost:5173
+# http://localhost:3000
 ```
 
 ### 빌드
@@ -70,13 +70,23 @@ npm run preview
 ## 📁 프로젝트 구조
 
 ```
-cog-viewer-openlayers/
 ├── src/
-│   └── main.js          # 메인 애플리케이션 로직
-├── index.html           # HTML 템플릿 및 스타일
-├── package.json         # 프로젝트 의존성
-├── vite.config.js       # Vite 설정
-└── README.md            # 프로젝트 문서
+│   └── main.js                # 메인 애플리케이션 로직
+├── tests/
+│   └── performance/           # Playwright 성능 테스트
+│       ├── 01-page-load.spec.js
+│       ├── 02-map-pan.spec.js
+│       ├── 03-map-zoom.spec.js
+│       ├── 04-detailed-state.spec.js
+│       └── helpers/
+│           └── metrics-collector.js
+├── docs/
+│   └── testing-guide.md       # 테스트 가이드 (통합 문서)
+├── index.html                 # HTML 템플릿 및 스타일
+├── playwright.config.js       # Playwright 설정
+├── vite.config.js             # Vite 설정
+├── CLAUDE.md                  # AI 코딩 지침
+└── package.json               # 프로젝트 의존성
 ```
 
 ## 🔧 설정 및 커스터마이징
@@ -95,13 +105,14 @@ const COG_URL = 'https://your-cog-url.tif'
 const cogSource = new GeoTIFFSource({
   sources: [{
     url: COG_URL,
-    bands: [1, 2, 3]        // RGB 밴드 선택
+    bands: [1, 2, 3],       // RGB 밴드 선택
+    nodata: 0               // nodata 값 설정
   }],
-  normalize: true,         // 픽셀값 정규화
-  convertToRGB: false,     // RGB 변환 여부
-  opaque: false,          // 투명도 지원
+  normalize: true,           // 픽셀값 정규화
+  convertToRGB: false,       // RGB 변환 여부
+  opaque: false,             // 투명도 지원
   sourceOptions: {
-    allowFullFile: false  // 전체 파일 다운로드 방지
+    allowFullFile: false     // 전체 파일 다운로드 방지
   }
 })
 ```
@@ -116,6 +127,17 @@ const cogSource = new GeoTIFFSource({
 | **촬영일** | 2017년 8월 31일 |
 | **지역** | Hurricane Harvey 재해 지역 (미국 텍사스) |
 | **URL** | `https://storage.googleapis.com/pdd-stac/disasters/hurricane-harvey/0831/SkySat_20170831T195552Z_RGB.tif` |
+
+## 🧪 테스트
+
+Playwright 기반 성능 테스트로 페이지 로딩, 팬/줌 인터랙션, COG 상태를 측정한다.
+
+```bash
+npm run build
+npm run test:performance
+```
+
+자세한 내용은 [docs/testing-guide.md](docs/testing-guide.md) 참조.
 
 ## 📚 참고 자료
 

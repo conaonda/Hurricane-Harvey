@@ -153,6 +153,10 @@ const initMap = async () => {
 
     console.log('Map initialized successfully')
 
+    // Expose to window for testing
+    window.map = map
+    window.cogSource = cogSource
+
   } catch (error) {
     console.error('Initialization error:', error)
     showError(`지도 초기화 중 오류 발생: ${error.message}`)

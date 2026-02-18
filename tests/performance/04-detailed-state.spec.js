@@ -40,10 +40,7 @@ test.describe('첫 화면 로딩 완료 후 상태 기록', () => {
         }
         
         httpResponses.push(responseInfo);
-        await route.fulfill({
-          response,
-          body: await response.body()
-        });
+        await route.fulfill({ response });
       } catch (e) {
         await route.continue();
       }
@@ -158,36 +155,8 @@ test.describe('첫 화면 로딩 완료 후 상태 기록', () => {
             // COG 소스 특정 정보
             if (source.constructor.name === 'GeoTIFFSource') {
               state.cogSource.state = source.getState();
-              
-              // 타일 캐시 정보 수집
-              if (source.getTileCache) {
-                const tileCache = source.getTileCache();
-                state.tileCache.count = tileCache.getCount();
-                
-                // 타일 인덱스 수집 (제한된 수량만)
-                const tileKeys = tileCache.getKeys ? tileCache.getKeys() : [];
-                state.tileCache.tiles = tileKeys.slice(0, 20).map(key => {
-                  const tile = tileCache.get(key);
-                  if (tile && tile.tileCoord) {
-                    return {
-                      key: key,
-                      z: tile.tileCoord[0],
-                      x: tile.tileCoord[1],
-                      y: tile.tileCoord[2]
-                    };
-                  }
-                  return { key: key };
-                });
-              }
-              
-              // 소스 옵션 정보 (가능한 경우)
-              if (source.options_) {
-                state.cogSource.normalize = source.options_.normalize;
-                state.cogSource.convertToRGB = source.options_.convertToRGB;
-                state.cogSource.opaque = source.options_.opaque;
-              }
             }
-            
+
             // OSM 소스 특정 정보
             if (source.constructor.name === 'OSM') {
               layerInfo.sourceUrl = source.getUrl ? source.getUrl() : 'default';
@@ -201,12 +170,6 @@ test.describe('첫 화면 로딩 완료 후 상태 기록', () => {
         if (window.cogSource) {
           const cogSrc = window.cogSource;
           state.cogSource.state = cogSrc.getState();
-          
-          // bands 정보 추출 (가능한 경우)
-          if (cogSrc.options_ && cogSrc.options_.sources) {
-            state.cogSource.bands = cogSrc.options_.sources[0]?.bands;
-            state.cogSource.url = cogSrc.options_.sources[0]?.url;
-          }
         }
         
         resolve(state);
@@ -351,7 +314,7 @@ test.describe('첫 화면 로딩 완료 후 상태 기록', () => {
     console.log(`레이어 수: ${currentState.layerCount}`);
     
     // 기준값과 비교 (허용 오차 포함)
-    // 참고: 이 값들은 첫 실행 후 docs/test-baseline.md에 기록된 기준값과 일치해야 함
+    // 참고: 기본 범위 검증 (줌 레벨, 레이어 수 등)
     expect(currentState.projectionCode).toBeTruthy();
     expect(currentState.center).toHaveLength(2);
     expect(currentState.zoom).toBeGreaterThan(5);
