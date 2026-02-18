@@ -5,9 +5,30 @@ import GeoTIFFSource from 'ol/source/GeoTIFF'
 import OSM from 'ol/source/OSM'
 import { defaults as defaultControls } from 'ol/control'
 import { transform, transformExtent } from 'ol/proj'
+import { fromUrl as tiffFromUrl } from 'geotiff'
 import 'ol/ol.css'
 
 const COG_URL = 'https://storage.googleapis.com/pdd-stac/disasters/hurricane-harvey/0831/SkySat_20170831T195552Z_RGB.tif'
+const COG_BANDS = [1, 2, 3]
+
+const getMinMaxFromOverview = async (tiff, bands) => {
+  const count = await tiff.getImageCount()
+  const image = await tiff.getImage(count - 1)
+  const rasters = await image.readRasters({ samples: bands.map(b => b - 1) })
+
+  const stats = []
+  for (const band of rasters) {
+    let min = Infinity, max = -Infinity
+    for (let i = 0; i < band.length; i++) {
+      const v = band[i]
+      if (v === 0) continue
+      if (v < min) min = v
+      if (v > max) max = v
+    }
+    stats.push({ min, max })
+  }
+  return stats
+}
 
 const loadingEl = document.getElementById('loading')
 const errorEl = document.getElementById('error')
@@ -25,10 +46,10 @@ const createCOGSource = () => {
   return new GeoTIFFSource({
     sources: [{
       url: COG_URL,
-      bands: [1, 2, 3],
+      bands: COG_BANDS,
       nodata: 0
     }],
-    normalize: true,
+    normalize: false,
     convertToRGB: false,
     opaque: false,
     sourceOptions: {
@@ -55,7 +76,11 @@ const initMap = async () => {
       }
     })
 
-    const cogView = await cogSource.getView()
+    const tiff = await tiffFromUrl(COG_URL)
+    const [cogView, stats] = await Promise.all([
+      cogSource.getView(),
+      getMinMaxFromOverview(tiff, COG_BANDS)
+    ])
     const cogProjection = cogView.projection
     const cogExtent = cogView.extent
 
@@ -69,10 +94,19 @@ const initMap = async () => {
       viewProjection,
       zoom: cogView.zoom
     })
+    console.log('Band min/max stats:', stats)
 
     const cogLayer = new WebGLTileLayer({
       source: cogSource,
-      opacity: 1,
+      style: {
+        color: [
+          'array',
+          ['/', ['-', ['band', 1], stats[0].min], stats[0].max - stats[0].min],
+          ['/', ['-', ['band', 2], stats[1].min], stats[1].max - stats[1].min],
+          ['/', ['-', ['band', 3], stats[2].min], stats[2].max - stats[2].min],
+          ['/', ['band', 4], 255]
+        ]
+      },
       extent: extent
     })
 
@@ -129,11 +163,11 @@ const initMap = async () => {
       <div id="wgs84-coords" style="color: #333;">-</div>
     `
     document.getElementById('app').appendChild(coordDisplay)
+    const mapCoordsEl = document.getElementById('map-coords')
+    const wgs84CoordsEl = document.getElementById('wgs84-coords')
 
     map.on('pointermove', (event) => {
       const coord = event.coordinate
-      const mapCoordsEl = document.getElementById('map-coords')
-      const wgs84CoordsEl = document.getElementById('wgs84-coords')
       
       if (coord) {
         const mapX = coord[0].toFixed(2)
