@@ -4,7 +4,7 @@ import TileGrid from 'ol/tilegrid/TileGrid.js'
 import { transformExtent, transform, get as getProjection } from 'ol/proj'
 import { fromUrl as tiffFromUrl } from 'geotiff'
 
-const applyAffineBypass = (cogSource, cogView, viewProjection) => {
+const applyAffineBypass = (cogSource, cogView, viewProjection, targetTileSize) => {
   const srcExtent = cogView.extent
   const srcProj = cogView.projection
   const srcTileGrid = cogSource.tileGrid
@@ -15,7 +15,13 @@ const applyAffineBypass = (cogSource, cogView, viewProjection) => {
   const srcResolutions = srcTileGrid.getResolutions()
   const dstResolutions = srcResolutions.map(r => r * scaleX)
 
-  const tileSizes = srcResolutions.map((_, z) => srcTileGrid.getTileSize(z))
+  const tileSizes = srcResolutions.map((_, z) => {
+    const src = srcTileGrid.getTileSize(z)
+    const srcW = Array.isArray(src) ? src[0] : src
+    const srcH = Array.isArray(src) ? src[1] : src
+    const factor = Math.max(1, Math.round(targetTileSize / srcW))
+    return [srcW * factor, srcH * factor]
+  })
 
   const dstTileGrid = new TileGrid({
     extent: dstExtent,
@@ -27,11 +33,14 @@ const applyAffineBypass = (cogSource, cogView, viewProjection) => {
   cogSource.projection = getProjection(viewProjection)
   cogSource.tileGrid = dstTileGrid
   cogSource.tileGridForProjection_ = {}
+  cogSource.setTileSizes(tileSizes)
 
   console.log('Affine bypass applied:', {
     from: srcProj.getCode(),
     to: viewProjection,
     scaleX: scaleX.toFixed(6),
+    tileSizes: tileSizes,
+    resolutions: dstResolutions,
     transformMatrix: cogSource.transformMatrix
   })
 }
@@ -109,7 +118,7 @@ const createCOGSource = (url, bands) => {
   })
 }
 
-export async function createCOGLayer({ url, bands, projectionMode, viewProjection }) {
+export async function createCOGLayer({ url, bands, projectionMode, viewProjection, targetTileSize = 256 }) {
   const tiff = await tiffFromUrl(url)
 
   const bandInfo = bands
@@ -128,7 +137,7 @@ export async function createCOGLayer({ url, bands, projectionMode, viewProjectio
   const cogExtent = cogView.extent
 
   if (projectionMode === 'affine') {
-    applyAffineBypass(source, cogView, viewProjection)
+    applyAffineBypass(source, cogView, viewProjection, targetTileSize)
   }
 
   const extent = cogExtent ? transformExtent(cogExtent, cogProjection, viewProjection) : undefined

@@ -10,6 +10,7 @@ const COG_URL = 'https://storage.googleapis.com/pdd-stac/disasters/hurricane-har
 
 const urlParams = new URLSearchParams(window.location.search)
 const PROJECTION_MODE = urlParams.get('mode') || 'affine'  // 'affine' | 'reproject'
+const TARGET_TILE_SIZE = parseInt(urlParams.get('tileSize'), 10) || 256
 
 const loadingEl = document.getElementById('loading')
 const errorEl = document.getElementById('error')
@@ -30,7 +31,7 @@ const initMap = async () => {
     const viewProjection = 'EPSG:3857'
 
     const { layer: cogLayer, source: cogSource, extent, center, zoom } =
-      await createCOGLayer({ url: COG_URL, projectionMode: PROJECTION_MODE, viewProjection })
+      await createCOGLayer({ url: COG_URL, projectionMode: PROJECTION_MODE, viewProjection, targetTileSize: TARGET_TILE_SIZE })
 
     cogSource.on('change', () => {
       if (cogSource.getState() === 'ready') {
