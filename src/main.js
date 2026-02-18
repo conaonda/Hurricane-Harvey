@@ -12,6 +12,9 @@ import 'ol/ol.css'
 const COG_URL = 'https://storage.googleapis.com/pdd-stac/disasters/hurricane-harvey/0831/SkySat_20170831T195552Z_RGB.tif'
 const COG_BANDS = [1, 2, 3]
 
+const urlParams = new URLSearchParams(window.location.search)
+const PROJECTION_MODE = urlParams.get('mode') || 'affine'  // 'affine' | 'reproject'
+
 const applyAffineBypass = (cogSource, cogView, viewProjection) => {
   const srcExtent = cogView.extent
   const srcProj = cogView.projection
@@ -117,7 +120,9 @@ const initMap = async () => {
     const cogProjection = cogView.projection
     const cogExtent = cogView.extent
 
-    applyAffineBypass(cogSource, cogView, viewProjection)
+    if (PROJECTION_MODE === 'affine') {
+      applyAffineBypass(cogSource, cogView, viewProjection)
+    }
 
     const extent = cogExtent ? transformExtent(cogExtent, cogProjection, viewProjection) : undefined
     const center = cogView.center ? transform(cogView.center, cogProjection, viewProjection) : undefined
@@ -127,7 +132,8 @@ const initMap = async () => {
       cogProjection: cogProjection?.getCode(),
       viewExtent: extent,
       viewProjection,
-      zoom: cogView.zoom
+      zoom: cogView.zoom,
+      projectionMode: PROJECTION_MODE
     })
     console.log('Band min/max stats:', stats)
 
