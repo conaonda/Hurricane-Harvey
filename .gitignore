@@ -7,4 +7,5 @@ test-results/
 
 # System files
 .sisyphus/
+.claude/**
 tmp/
