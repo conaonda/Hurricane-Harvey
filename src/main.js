@@ -4,12 +4,45 @@ import WebGLTileLayer from 'ol/layer/WebGLTile'
 import GeoTIFFSource from 'ol/source/GeoTIFF'
 import OSM from 'ol/source/OSM'
 import { defaults as defaultControls } from 'ol/control'
-import { transform, transformExtent } from 'ol/proj'
+import TileGrid from 'ol/tilegrid/TileGrid.js'
+import { transform, transformExtent, get as getProjection } from 'ol/proj'
 import { fromUrl as tiffFromUrl } from 'geotiff'
 import 'ol/ol.css'
 
 const COG_URL = 'https://storage.googleapis.com/pdd-stac/disasters/hurricane-harvey/0831/SkySat_20170831T195552Z_RGB.tif'
 const COG_BANDS = [1, 2, 3]
+
+const applyAffineBypass = (cogSource, cogView, viewProjection) => {
+  const srcExtent = cogView.extent
+  const srcProj = cogView.projection
+  const srcTileGrid = cogSource.tileGrid
+
+  const dstExtent = transformExtent(srcExtent, srcProj, viewProjection)
+
+  const scaleX = (dstExtent[2] - dstExtent[0]) / (srcExtent[2] - srcExtent[0])
+  const srcResolutions = srcTileGrid.getResolutions()
+  const dstResolutions = srcResolutions.map(r => r * scaleX)
+
+  const tileSize = srcTileGrid.getTileSize(srcTileGrid.getMinZoom())
+
+  const dstTileGrid = new TileGrid({
+    extent: dstExtent,
+    minZoom: srcTileGrid.getMinZoom(),
+    resolutions: dstResolutions,
+    tileSize: tileSize
+  })
+
+  cogSource.projection = getProjection(viewProjection)
+  cogSource.tileGrid = dstTileGrid
+  cogSource.tileGridForProjection_ = {}
+
+  console.log('Affine bypass applied:', {
+    from: srcProj.getCode(),
+    to: viewProjection,
+    scaleX: scaleX.toFixed(6),
+    transformMatrix: cogSource.transformMatrix
+  })
+}
 
 const getMinMaxFromOverview = async (tiff, bands) => {
   const count = await tiff.getImageCount()
@@ -83,6 +116,8 @@ const initMap = async () => {
     ])
     const cogProjection = cogView.projection
     const cogExtent = cogView.extent
+
+    applyAffineBypass(cogSource, cogView, viewProjection)
 
     const extent = cogExtent ? transformExtent(cogExtent, cogProjection, viewProjection) : undefined
     const center = cogView.center ? transform(cogView.center, cogProjection, viewProjection) : undefined
