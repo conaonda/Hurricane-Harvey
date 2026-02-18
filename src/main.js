@@ -43,6 +43,10 @@ const initMap = async () => {
       }
     })
 
+    if (cogSource.getState() === 'ready') {
+      hideLoading()
+    }
+
     const osmLayer = new TileLayer({
       source: new OSM(),
       opacity: 0.3
