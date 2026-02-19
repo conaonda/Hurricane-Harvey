@@ -98,7 +98,7 @@ URL 쿼리 파라미터로 렌더링 동작을 제어할 수 있습니다.
 | 파라미터 | 기본값 | 값 | 설명 |
 |----------|--------|----|------|
 | `mode` | `affine` | `affine`, `reproject`, `image` | COG 렌더링 모드 선택 |
-| `tileSize` | `256` | 양의 정수 | affine 모드에서 타일 스케일업 크기 |
+| `tileSize` | `256` | 양의 정수 | `affine`·`reproject` 모드에서 타일 스케일업 크기 (`image` 모드에서는 무시) |
 
 **mode 값 설명:**
 - `affine` — Affine 변환 기반 타일 렌더링 (기본값)
@@ -108,7 +108,7 @@ URL 쿼리 파라미터로 렌더링 동작을 제어할 수 있습니다.
 **사용 예시:**
 
 ```
-http://localhost:3000/?mode=image&tileSize=512
+http://localhost:3000/?mode=affine&tileSize=512
 ```
 
 ### COG URL 변경
