@@ -2,7 +2,49 @@ import WebGLTileLayer from 'ol/layer/WebGLTile'
 import GeoTIFFSource from 'ol/source/GeoTIFF'
 import TileGrid from 'ol/tilegrid/TileGrid.js'
 import { transformExtent, transform, get as getProjection } from 'ol/proj'
+import { create as createTransform, set as setTransform } from 'ol/transform.js'
 import { fromUrl as tiffFromUrl } from 'geotiff'
+import { patchRendererWithAffine } from './AffineTileLayer.js'
+
+async function computePixelToViewAffine(tiff, cogProjection, viewProjection) {
+  const image = await tiff.getImage(0)
+  const mt = image.fileDirectory.getValue('ModelTransformation')
+
+  if (!mt || (mt[1] === 0 && mt[4] === 0)) return null
+
+  // Approximate pixel→view CRS as affine via 3 sample points
+  const srcCode = typeof cogProjection === 'string' ? cogProjection : cogProjection.getCode()
+  const w = image.getWidth()
+  const h = image.getHeight()
+
+  // Sample 3 corner pixels → source CRS → view CRS
+  const pixels = [[0, 0], [w, 0], [0, h]]
+  const viewPts = pixels.map(([px, py]) => {
+    const sx = mt[0] * px + mt[1] * py + mt[3]
+    const sy = mt[4] * px + mt[5] * py + mt[7]
+    return transform([sx, sy], srcCode, viewProjection)
+  })
+
+  // Solve pixel→view affine from 3 points at (0,0), (w,0), (0,h)
+  const [vx0, vy0] = viewPts[0]
+  const [vx1, vy1] = viewPts[1]
+  const [vx2, vy2] = viewPts[2]
+
+  const pixelToView = createTransform()
+  setTransform(pixelToView,
+    (vx1 - vx0) / w, (vy1 - vy0) / w,
+    (vx2 - vx0) / h, (vy2 - vy0) / h,
+    vx0, vy0
+  )
+
+  console.log('[DIAG] computePixelToViewAffine:', {
+    mt: [mt[0], mt[1], mt[3], mt[4], mt[5], mt[7]],
+    pixelToView: Array.from(pixelToView),
+    imageSize: [w, h]
+  })
+
+  return pixelToView
+}
 
 const applyAffineBypass = (cogSource, cogView, viewProjection, targetTileSize) => {
   const srcExtent = cogView.extent
@@ -94,6 +136,15 @@ const applyAffineBypass = (cogSource, cogView, viewProjection, targetTileSize) =
     }
   }
 
+  const allImagery = cogSource.sourceImagery_[0]
+  const mainImg = allImagery[allImagery.length - 1]
+  const mainW = mainImg.getWidth()
+  const mainH = mainImg.getHeight()
+  const overviewScales = allImagery.map(img => [
+    mainW / img.getWidth(),
+    mainH / img.getHeight()
+  ])
+
   const maxSrcDim = sourceTileSizes.reduce((m, s) => Math.max(m, s[0], s[1]), 0)
   console.log('[DIAG] applyAffineBypass:', {
     from: srcProj.getCode(),
@@ -106,6 +157,8 @@ const applyAffineBypass = (cogSource, cogView, viewProjection, targetTileSize) =
     transformMatrix: cogSource.transformMatrix,
     sourceImageryLen: cogSource.sourceImagery_[0]?.length
   })
+
+  return { sourceTileSizes, overviewScales }
 }
 
 export const getMinMaxFromOverview = async (tiff, bands) => {
@@ -213,8 +266,11 @@ export async function createCOGLayer({ url, bands, projectionMode, viewProjectio
     sourceImageryLen: source.sourceImagery_?.[0]?.length
   })
 
+  let sourceTileSizes, overviewScales
   if (projectionMode === 'affine') {
-    applyAffineBypass(source, cogView, viewProjection, targetTileSize)
+    const result = applyAffineBypass(source, cogView, viewProjection, targetTileSize)
+    sourceTileSizes = result.sourceTileSizes
+    overviewScales = result.overviewScales
   }
 
   const extent = cogExtent ? transformExtent(cogExtent, cogProjection, viewProjection) : undefined
@@ -235,6 +291,13 @@ export async function createCOGLayer({ url, bands, projectionMode, viewProjectio
     style: buildStyle(bandInfo, stats),
     extent: extent
   })
+
+  if (projectionMode === 'affine' && sourceTileSizes) {
+    const pixelToView = await computePixelToViewAffine(tiff, cogProjection, viewProjection)
+    if (pixelToView) {
+      patchRendererWithAffine(layer, pixelToView, sourceTileSizes, overviewScales)
+    }
+  }
 
   return { layer, source, extent, center, zoom: cogView.zoom }
 }
