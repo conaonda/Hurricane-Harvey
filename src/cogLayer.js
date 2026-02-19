@@ -2,7 +2,9 @@ import WebGLTileLayer from 'ol/layer/WebGLTile'
 import GeoTIFFSource from 'ol/source/GeoTIFF'
 import TileGrid from 'ol/tilegrid/TileGrid.js'
 import { transformExtent, transform, get as getProjection } from 'ol/proj'
-import { fromUrl as tiffFromUrl } from 'geotiff'
+import { fromUrl as tiffFromUrl, Pool } from 'geotiff'
+
+export const pool = new Pool()
 
 const applyAffineBypass = (cogSource, cogView, viewProjection, targetTileSize) => {
   const srcExtent = cogView.extent
@@ -48,7 +50,7 @@ const applyAffineBypass = (cogSource, cogView, viewProjection, targetTileSize) =
 export const getMinMaxFromOverview = async (tiff, bands) => {
   const count = await tiff.getImageCount()
   const image = await tiff.getImage(count - 1)
-  const rasters = await image.readRasters({ samples: bands.map(b => b - 1) })
+  const rasters = await image.readRasters({ samples: bands.map(b => b - 1), pool })
 
   const stats = []
   for (const band of rasters) {
@@ -61,7 +63,7 @@ export const getMinMaxFromOverview = async (tiff, bands) => {
     }
     stats.push({ min, max })
   }
-  return stats
+  return { stats, rasters, width: image.getWidth(), height: image.getHeight() }
 }
 
 export const detectBands = async (tiff) => {
@@ -129,7 +131,7 @@ export async function createCOGLayer({ url, bands, projectionMode, viewProjectio
   console.log('Band detection:', bandInfo)
 
   const source = createCOGSource(url, resolvedBands)
-  const [cogView, stats] = await Promise.all([
+  const [cogView, { stats }] = await Promise.all([
     source.getView(),
     getMinMaxFromOverview(tiff, resolvedBands)
   ])

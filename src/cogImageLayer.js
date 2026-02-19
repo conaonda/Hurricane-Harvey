@@ -3,7 +3,39 @@ import ImageCanvasSource from 'ol/source/ImageCanvas'
 import { transformExtent } from 'ol/proj'
 import { intersects, getIntersection } from 'ol/extent'
 import { fromUrl as tiffFromUrl } from 'geotiff'
-import { detectBands, getMinMaxFromOverview } from './cogLayer.js'
+import { detectBands, getMinMaxFromOverview, pool } from './cogLayer.js'
+
+function fillPixelData(px, rasters, bandInfo, stats, pixelCount) {
+  if (bandInfo.type === 'rgb') {
+    const r = rasters[0], g = rasters[1], b = rasters[2]
+    const rMin = stats[0].min, rScale = 255 / (stats[0].max - stats[0].min)
+    const gMin = stats[1].min, gScale = 255 / (stats[1].max - stats[1].min)
+    const bMin = stats[2].min, bScale = 255 / (stats[2].max - stats[2].min)
+    for (let i = 0; i < pixelCount; i++) {
+      const j = i * 4
+      if (r[i] === 0 && g[i] === 0 && b[i] === 0) {
+        px[j + 3] = 0
+      } else {
+        px[j]     = ((r[i] - rMin) * rScale + 0.5) | 0
+        px[j + 1] = ((g[i] - gMin) * gScale + 0.5) | 0
+        px[j + 2] = ((b[i] - bMin) * bScale + 0.5) | 0
+        px[j + 3] = 255
+      }
+    }
+  } else {
+    const band = rasters[0]
+    const bMin = stats[0].min, bScale = 255 / (stats[0].max - stats[0].min)
+    for (let i = 0; i < pixelCount; i++) {
+      const j = i * 4
+      if (band[i] === 0) {
+        px[j + 3] = 0
+      } else {
+        const v = ((band[i] - bMin) * bScale + 0.5) | 0
+        px[j] = v; px[j + 1] = v; px[j + 2] = v; px[j + 3] = 255
+      }
+    }
+  }
+}
 
 export async function createCOGImageLayer({ url, viewProjection }) {
   const tiff = await tiffFromUrl(url)
@@ -13,7 +45,8 @@ export async function createCOGImageLayer({ url, viewProjection }) {
     tiff.getImage(0)
   ])
 
-  const stats = await getMinMaxFromOverview(tiff, bandInfo.bands)
+  const overview = await getMinMaxFromOverview(tiff, bandInfo.bands)
+  const stats = overview.stats
   const samples = bandInfo.bands.map(b => b - 1)
 
   // COG native CRS
@@ -35,6 +68,18 @@ export async function createCOGImageLayer({ url, viewProjection }) {
   let debounceTimer = null
   let abortCtrl = null
 
+  // Render overview as low-res preview so the first frame is not blank
+  const pvW = overview.width, pvH = overview.height
+  const previewCanvas = document.createElement('canvas')
+  previewCanvas.width = pvW
+  previewCanvas.height = pvH
+  const previewCtx = previewCanvas.getContext('2d')
+  const previewImgData = previewCtx.createImageData(pvW, pvH)
+  fillPixelData(previewImgData.data, overview.rasters, bandInfo, stats, pvW * pvH)
+  previewCtx.putImageData(previewImgData, 0, 0)
+  cachedCanvas = previewCanvas
+  cachedExtent = viewExtent.slice()
+
   const extentKey = (ext, w, h) => `${ext.map(v => v.toFixed(1)).join(',')}_${w}x${h}`
 
   const loadAndRender = async (extent, size, canvas) => {
@@ -55,64 +100,40 @@ export async function createCOGImageLayer({ url, viewProjection }) {
       const fullH = reqExtent[3] - reqExtent[1]
       const clipW = clipped[2] - clipped[0]
       const clipH = clipped[3] - clipped[1]
-      const readWidth = Math.max(1, Math.round(size[0] * (clipW / fullW)))
-      const readHeight = Math.max(1, Math.round(size[1] * (clipH / fullH)))
+      const resX = fullW / size[0]
+      const resY = fullH / size[1]
 
-      const rasters = await tiff.readRasters({
+      const readParams = {
         bbox: [clipped[0], clipped[1], clipped[2], clipped[3]],
-        width: readWidth,
-        height: readHeight,
-        samples,
-        signal
-      })
+        resX, resY,
+        samples
+      }
+      console.log('readRasters params:', readParams)
+      const rasters = await tiff.readRasters({ ...readParams, signal, pool })
 
       if (signal.aborted) return
 
-      // Render to canvas
+      const natW = rasters.width
+      const natH = rasters.height
+      if (natW === 0 || natH === 0) return
+
+      // Render to native-resolution temp canvas
+      const tmpCanvas = document.createElement('canvas')
+      tmpCanvas.width = natW
+      tmpCanvas.height = natH
+      const tmpCtx = tmpCanvas.getContext('2d')
+      const imgData = tmpCtx.createImageData(natW, natH)
+      fillPixelData(imgData.data, rasters, bandInfo, stats, natW * natH)
+      tmpCtx.putImageData(imgData, 0, 0)
+
+      // GPU-accelerated scaling to viewport
       const ctx = canvas.getContext('2d')
       ctx.clearRect(0, 0, canvas.width, canvas.height)
-      const imgData = ctx.createImageData(readWidth, readHeight)
-      const px = imgData.data
-      const pixelCount = readWidth * readHeight
-
-      if (bandInfo.type === 'rgb') {
-        const r = rasters[0], g = rasters[1], b = rasters[2]
-        const rMin = stats[0].min, rRange = stats[0].max - stats[0].min
-        const gMin = stats[1].min, gRange = stats[1].max - stats[1].min
-        const bMin = stats[2].min, bRange = stats[2].max - stats[2].min
-        for (let i = 0; i < pixelCount; i++) {
-          const j = i * 4
-          if (r[i] === 0 && g[i] === 0 && b[i] === 0) {
-            px[j + 3] = 0 // nodata → transparent
-          } else {
-            px[j]     = Math.round(((r[i] - rMin) / rRange) * 255)
-            px[j + 1] = Math.round(((g[i] - gMin) / gRange) * 255)
-            px[j + 2] = Math.round(((b[i] - bMin) / bRange) * 255)
-            px[j + 3] = 255
-          }
-        }
-      } else {
-        const band = rasters[0]
-        const bMin = stats[0].min, bRange = stats[0].max - stats[0].min
-        for (let i = 0; i < pixelCount; i++) {
-          const j = i * 4
-          if (band[i] === 0) {
-            px[j + 3] = 0
-          } else {
-            const v = Math.round(((band[i] - bMin) / bRange) * 255)
-            px[j] = v; px[j + 1] = v; px[j + 2] = v; px[j + 3] = 255
-          }
-        }
-      }
-
-      // Draw clipped image at correct offset within the full canvas
-      const offCanvas = new OffscreenCanvas(readWidth, readHeight)
-      const offCtx = offCanvas.getContext('2d')
-      offCtx.putImageData(imgData, 0, 0)
-
+      const drawW = Math.round(size[0] * (clipW / fullW))
+      const drawH = Math.round(size[1] * (clipH / fullH))
       const offsetX = Math.round(size[0] * ((clipped[0] - reqExtent[0]) / fullW))
       const offsetY = Math.round(size[1] * ((reqExtent[3] - clipped[3]) / fullH))
-      ctx.drawImage(offCanvas, offsetX, offsetY)
+      ctx.drawImage(tmpCanvas, 0, 0, natW, natH, offsetX, offsetY, drawW, drawH)
 
       // Update cache and trigger re-render
       cachedKey = extentKey(extent, size[0], size[1])
