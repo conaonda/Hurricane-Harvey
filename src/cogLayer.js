@@ -2,9 +2,7 @@ import WebGLTileLayer from 'ol/layer/WebGLTile'
 import GeoTIFFSource from 'ol/source/GeoTIFF'
 import TileGrid from 'ol/tilegrid/TileGrid.js'
 import { transformExtent, transform, get as getProjection } from 'ol/proj'
-import { fromUrl as tiffFromUrl, Pool } from 'geotiff'
-
-export const pool = new Pool()
+import { fromUrl as tiffFromUrl } from 'geotiff'
 
 const applyAffineBypass = (cogSource, cogView, viewProjection, targetTileSize) => {
   const srcExtent = cogView.extent
@@ -15,7 +13,7 @@ const applyAffineBypass = (cogSource, cogView, viewProjection, targetTileSize) =
 
   const scaleX = (dstExtent[2] - dstExtent[0]) / (srcExtent[2] - srcExtent[0])
   const srcResolutions = srcTileGrid.getResolutions()
-  const dstResolutions = srcResolutions.map(r => r * scaleX)
+  let dstResolutions = srcResolutions.map(r => r * scaleX)
 
   const tileSizes = srcResolutions.map((_, z) => {
     const src = srcTileGrid.getTileSize(z)
@@ -25,32 +23,95 @@ const applyAffineBypass = (cogSource, cogView, viewProjection, targetTileSize) =
     return [srcW * factor, srcH * factor]
   })
 
+  // 뷰 해상도가 타일 그리드 최저 해상도를 초과해도 렌더링되도록
+  // 더 거친 해상도 레벨을 추가
+  const MAX_SOURCE_TILE_DIM = 2048
+  const MIN_SCREEN_PX = 100
+  const extW = dstExtent[2] - dstExtent[0]
+  const extH = dstExtent[3] - dstExtent[1]
+  const maxViewRes = Math.min(extW, extH) / MIN_SCREEN_PX
+
+  let renderTileSizes
+  let sourceTileSizes
+  let extraCount = 0
+
+  if (dstResolutions[0] < maxViewRes) {
+    const baseTile = tileSizes[0]
+    const extraResolutions = []
+    const extraRenderTileSizes = []
+    const extraSourceTileSizes = []
+
+    let r = dstResolutions[0] * 2
+    let factor = 2
+    while (true) {
+      extraResolutions.push(r)
+      extraRenderTileSizes.push([baseTile[0], baseTile[1]])
+      const cappedW = Math.min(baseTile[0] * factor, MAX_SOURCE_TILE_DIM)
+      const cappedH = Math.min(baseTile[1] * factor, MAX_SOURCE_TILE_DIM)
+      extraSourceTileSizes.push([cappedW, cappedH])
+      if (r >= maxViewRes) break
+      r *= 2
+      factor *= 2
+    }
+    extraCount = extraResolutions.length
+
+    // coarsest가 index 0이 되도록 역순 정렬
+    extraResolutions.reverse()
+    extraRenderTileSizes.reverse()
+    extraSourceTileSizes.reverse()
+
+    dstResolutions = [...extraResolutions, ...dstResolutions]
+    renderTileSizes = [...extraRenderTileSizes, ...tileSizes]
+    sourceTileSizes = [...extraSourceTileSizes, ...tileSizes]
+  } else {
+    renderTileSizes = tileSizes
+    sourceTileSizes = tileSizes
+  }
+
   const dstTileGrid = new TileGrid({
     extent: dstExtent,
     minZoom: srcTileGrid.getMinZoom(),
     resolutions: dstResolutions,
-    tileSizes: tileSizes
+    tileSizes: renderTileSizes
   })
 
   cogSource.projection = getProjection(viewProjection)
   cogSource.tileGrid = dstTileGrid
   cogSource.tileGridForProjection_ = {}
-  cogSource.setTileSizes(tileSizes)
+  cogSource.transformMatrix = null
+  cogSource.setTileSizes(sourceTileSizes)
 
-  console.log('Affine bypass applied:', {
+  // 추가 레벨에 대응하는 sourceImagery_ / sourceMasks_ 패딩
+  if (extraCount > 0) {
+    const imagery = cogSource.sourceImagery_[0]
+    const coarsestImage = imagery[0]
+    for (let i = 0; i < extraCount; i++) {
+      imagery.unshift(coarsestImage)
+    }
+    const masks = cogSource.sourceMasks_[0]
+    for (let i = 0; i < extraCount; i++) {
+      masks.unshift(undefined)
+    }
+  }
+
+  const maxSrcDim = sourceTileSizes.reduce((m, s) => Math.max(m, s[0], s[1]), 0)
+  console.log('[DIAG] applyAffineBypass:', {
     from: srcProj.getCode(),
     to: viewProjection,
     scaleX: scaleX.toFixed(6),
-    tileSizes: tileSizes,
-    resolutions: dstResolutions,
-    transformMatrix: cogSource.transformMatrix
+    dstResolutions,
+    maxViewRes: maxViewRes.toFixed(4),
+    extraLevels: extraCount,
+    maxSourceTileDim: maxSrcDim,
+    transformMatrix: cogSource.transformMatrix,
+    sourceImageryLen: cogSource.sourceImagery_[0]?.length
   })
 }
 
 export const getMinMaxFromOverview = async (tiff, bands) => {
   const count = await tiff.getImageCount()
   const image = await tiff.getImage(count - 1)
-  const rasters = await image.readRasters({ samples: bands.map(b => b - 1), pool })
+  const rasters = await image.readRasters({ samples: bands.map(b => b - 1) })
 
   const stats = []
   for (const band of rasters) {
@@ -60,6 +121,10 @@ export const getMinMaxFromOverview = async (tiff, bands) => {
       if (v === 0) continue
       if (v < min) min = v
       if (v > max) max = v
+    }
+    if (!isFinite(min) || !isFinite(max)) {
+      min = 0
+      max = 1
     }
     stats.push({ min, max })
   }
@@ -137,6 +202,16 @@ export async function createCOGLayer({ url, bands, projectionMode, viewProjectio
   ])
   const cogProjection = cogView.projection
   const cogExtent = cogView.extent
+
+  const imageCount = await tiff.getImageCount()
+  const hasInfinity = stats.some(s => !isFinite(s.min) || !isFinite(s.max))
+  console.log('[DIAG] createCOGLayer:', {
+    imageCount,
+    transformMatrix: source.transformMatrix,
+    statsValid: !hasInfinity,
+    stats,
+    sourceImageryLen: source.sourceImagery_?.[0]?.length
+  })
 
   if (projectionMode === 'affine') {
     applyAffineBypass(source, cogView, viewProjection, targetTileSize)
