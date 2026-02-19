@@ -97,27 +97,32 @@ URL 쿼리 파라미터로 렌더링 동작을 제어할 수 있습니다.
 
 | 파라미터 | 기본값 | 값 | 설명 |
 |----------|--------|----|------|
-| `mode` | `affine` | `affine`, `reproject`, `image` | COG 렌더링 모드 선택 |
-| `tileSize` | `256` | 양의 정수 | `affine`·`reproject` 모드에서 타일 스케일업 크기 (`image` 모드에서는 무시) |
+| `url` | Hurricane Harvey SkySat URL | COG URL | 초기 로드할 COG 영상 URL |
+| `mode` | `affine` | `affine`, `reproject` | 좌표계 투영 처리 방식 |
+| `render` | `tile` | `tile`, `image` | 렌더링 파이프라인 선택 |
+| `tileSize` | `256` | 양의 정수 | `mode=affine` + `render=tile`에서 타일 스케일업 크기 |
 
 **mode 값 설명:**
-- `affine` — Affine 변환 기반 타일 렌더링 (기본값)
-- `reproject` — 좌표계 재투영을 적용한 렌더링
-- `image` — 뷰포트 단위 이미지 렌더링
+- `affine` — Affine 변환 기반 좌표 매핑 (기본값). 좌표계가 유사할 때 빠르게 동작
+- `reproject` — proj4 기반 좌표계 재투영. 정확한 좌표 변환이 필요할 때 사용
+
+**render 값 설명:**
+- `tile` — OpenLayers WebGLTile 레이어 기반 타일 렌더링 (기본값)
+- `image` — 뷰포트 단위 이미지 렌더링. 전체 뷰를 하나의 이미지로 요청
 
 **사용 예시:**
 
 ```
+http://localhost:3000/?url=https://example.com/my-image.tif
 http://localhost:3000/?mode=affine&tileSize=512
+http://localhost:3000/?mode=reproject
+http://localhost:3000/?render=image
+http://localhost:3000/?url=https://example.com/my-image.tif&render=image
 ```
 
 ### COG URL 변경
 
-`src/main.js`에서 `COG_URL` 상수를 수정하여 다른 COG 영상을 로드할 수 있습니다:
-
-```javascript
-const COG_URL = 'https://your-cog-url.tif'
-```
+헤더의 URL 입력 필드에 COG URL을 입력하고 **로드** 버튼을 클릭하면 페이지 리로드 없이 영상이 교체됩니다. `url` 쿼리 파라미터로도 초기 영상을 지정할 수 있습니다.
 
 ### 옵션 설정
 

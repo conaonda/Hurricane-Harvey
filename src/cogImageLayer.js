@@ -2,8 +2,10 @@ import ImageLayer from 'ol/layer/Image'
 import ImageCanvasSource from 'ol/source/ImageCanvas'
 import { transformExtent } from 'ol/proj'
 import { intersects, getIntersection } from 'ol/extent'
-import { fromUrl as tiffFromUrl } from 'geotiff'
-import { detectBands, getMinMaxFromOverview, pool } from './cogLayer.js'
+import { fromUrl as tiffFromUrl, Pool } from 'geotiff'
+import { detectBands, getMinMaxFromOverview } from './cogLayer.js'
+
+const pool = new Pool()
 
 function fillPixelData(px, rasters, bandInfo, stats, pixelCount) {
   if (bandInfo.type === 'rgb') {
@@ -37,7 +39,7 @@ function fillPixelData(px, rasters, bandInfo, stats, pixelCount) {
   }
 }
 
-export async function createCOGImageLayer({ url, viewProjection }) {
+export async function createCOGImageLayer({ url, projectionMode = 'reproject', viewProjection }) {
   const tiff = await tiffFromUrl(url)
 
   const [bandInfo, image] = await Promise.all([
@@ -58,6 +60,17 @@ export async function createCOGImageLayer({ url, viewProjection }) {
   const bbox = image.getBoundingBox()
   const cogExtent = [bbox[0], bbox[1], bbox[2], bbox[3]]
   const viewExtent = transformExtent(cogExtent, cogCRS, viewProjection)
+
+  const affineViewToCog = (ext) => {
+    const sx = (cogExtent[2] - cogExtent[0]) / (viewExtent[2] - viewExtent[0])
+    const sy = (cogExtent[3] - cogExtent[1]) / (viewExtent[3] - viewExtent[1])
+    return [
+      cogExtent[0] + (ext[0] - viewExtent[0]) * sx,
+      cogExtent[1] + (ext[1] - viewExtent[1]) * sy,
+      cogExtent[0] + (ext[2] - viewExtent[0]) * sx,
+      cogExtent[1] + (ext[3] - viewExtent[1]) * sy
+    ]
+  }
 
   console.log('COG Image mode:', { cogCRS, cogExtent, viewExtent, bandInfo, stats })
 
@@ -89,7 +102,9 @@ export async function createCOGImageLayer({ url, viewProjection }) {
     const { signal } = abortCtrl
 
     try {
-      const reqExtent = transformExtent(extent, viewProjection, cogCRS)
+      const reqExtent = projectionMode === 'affine'
+        ? affineViewToCog(extent)
+        : transformExtent(extent, viewProjection, cogCRS)
 
       // Clip to COG bounds
       if (!intersects(reqExtent, cogExtent)) return
