@@ -55,7 +55,7 @@ const initMap = async () => {
     })
   })
 
-  apply(baseGroup, './src/style.json')
+  apply(baseGroup, './style.json')
 
   const coordDisplay = document.createElement('div')
   coordDisplay.id = 'coordinate-display'
