@@ -39,7 +39,7 @@ function fillPixelData(px, rasters, bandInfo, stats, pixelCount) {
   }
 }
 
-export async function createCOGImageLayer({ url, projectionMode = 'reproject', viewProjection }) {
+export async function createCOGImageLayer({ url, projectionMode = 'reproject', viewProjection, opacity = 1 }) {
   const tiff = await tiffFromUrl(url)
 
   const [bandInfo, image] = await Promise.all([
@@ -194,7 +194,8 @@ export async function createCOGImageLayer({ url, projectionMode = 'reproject', v
 
   const layer = new ImageLayer({
     source,
-    extent: viewExtent
+    extent: viewExtent,
+    opacity
   })
 
   return { layer, source, extent: viewExtent, center: [(viewExtent[0] + viewExtent[2]) / 2, (viewExtent[1] + viewExtent[3]) / 2] }

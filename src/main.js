@@ -35,7 +35,7 @@ const initMap = async () => {
   const loadBtn = document.getElementById('cog-url-load')
   urlInput.value = COG_URL
 
-  const baseGroup = new LayerGroup({ opacity: 0.3 })
+  const baseGroup = new LayerGroup({ opacity: 0.8 })
 
   const view = new View({
     projection: viewProjection,
@@ -112,13 +112,13 @@ const initMap = async () => {
       let cogLayer, cogSource, extent
 
       if (RENDER_PIPELINE === 'image') {
-        const result = await createCOGImageLayer({ url, projectionMode: PROJECTION_MODE, viewProjection })
+        const result = await createCOGImageLayer({ url, projectionMode: PROJECTION_MODE, viewProjection, opacity: 0.8 })
         cogLayer = result.layer
         cogSource = result.source
         extent = result.extent
         hideLoading()
       } else {
-        const result = await createCOGLayer({ url, projectionMode: PROJECTION_MODE, viewProjection, targetTileSize: TARGET_TILE_SIZE })
+        const result = await createCOGLayer({ url, projectionMode: PROJECTION_MODE, viewProjection, targetTileSize: TARGET_TILE_SIZE, opacity: 0.8 })
         cogLayer = result.layer
         cogSource = result.source
         extent = result.extent
