@@ -1,6 +1,6 @@
 import { Map, View } from 'ol'
-import TileLayer from 'ol/layer/Tile'
-import OSM from 'ol/source/OSM'
+import LayerGroup from 'ol/layer/Group'
+import { apply } from 'ol-mapbox-style'
 import { defaults as defaultControls } from 'ol/control'
 import { transform } from 'ol/proj'
 import { createCOGLayer } from './cogLayer.js'
@@ -35,10 +35,7 @@ const initMap = async () => {
   const loadBtn = document.getElementById('cog-url-load')
   urlInput.value = COG_URL
 
-  const osmLayer = new TileLayer({
-    source: new OSM(),
-    opacity: 0.3
-  })
+  const baseGroup = new LayerGroup({ opacity: 0.3 })
 
   const view = new View({
     projection: viewProjection,
@@ -49,7 +46,7 @@ const initMap = async () => {
 
   const map = new Map({
     target: 'map',
-    layers: [osmLayer],
+    layers: [baseGroup],
     view: view,
     controls: defaultControls({
       zoom: true,
@@ -57,6 +54,8 @@ const initMap = async () => {
       attribution: true
     })
   })
+
+  apply(baseGroup, './src/style.json')
 
   const coordDisplay = document.createElement('div')
   coordDisplay.id = 'coordinate-display'

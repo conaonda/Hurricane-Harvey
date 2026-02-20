@@ -14,7 +14,8 @@
     "test:state:headed": "npm run preview -- --port 4173 & sleep 5 && playwright test tests/performance/04-detailed-state.spec.js --headed; TEST_EXIT=$?; pkill -f 'vite preview' 2>/dev/null || true; exit $TEST_EXIT"
   },
   "dependencies": {
-    "ol": "^10.8.0"
+    "ol": "^10.8.0",
+    "ol-mapbox-style": "^13.2.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
