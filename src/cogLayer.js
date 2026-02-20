@@ -291,6 +291,28 @@ function patchTileGridForAffine(tileGrid, pixelToView, sourceTileSizes, overview
     return createOrUpdateTileRange(minX, maxX, minY, maxY, opt_tileRange)
   }
 
+  // findAltTiles_가 zoomFactor_ fallback으로 getTileRangeForExtentAndZ를 호출할 때
+  // axis-aligned grid extent를 역변환해 잘못된 픽셀 범위를 반환하는 문제 방지.
+  // pixel-space 좌표계에서 직접 부모/자식 타일 범위를 계산한다.
+  tileGrid.getTileRangeForTileCoordAndZ = function (tileCoord, z, opt_tileRange) {
+    if (z > tileGrid.maxZoom || z < tileGrid.minZoom) return null
+    const [tileZ, tileX, tileY] = tileCoord
+    if (z === tileZ) {
+      return createOrUpdateTileRange(tileX, tileX, tileY, tileY, opt_tileRange)
+    }
+    const factor = Math.pow(2, z - tileZ)
+    if (z < tileZ) {
+      const px = Math.floor(tileX * factor)
+      const py = Math.floor(tileY * factor)
+      return createOrUpdateTileRange(px, px, py, py, opt_tileRange)
+    }
+    const minX = Math.floor(tileX * factor)
+    const minY = Math.floor(tileY * factor)
+    const maxX = Math.floor((tileX + 1) * factor) - 1
+    const maxY = Math.floor((tileY + 1) * factor) - 1
+    return createOrUpdateTileRange(minX, maxX, minY, maxY, opt_tileRange)
+  }
+
   // 회전된 뷰에서 OL이 타일 그리드 위치 기반으로 타일을 건너뛰지 않도록
   tileGrid.tileCoordIntersectsViewport = function () { return true }
 }
@@ -344,7 +366,8 @@ export async function createCOGLayer({ url, bands, projectionMode, viewProjectio
     source: source,
     style: buildStyle(bandInfo, stats),
     extent: extent,
-    opacity
+    opacity,
+    preload: 2
   })
 
   if (projectionMode === 'affine' && sourceTileSizes) {
