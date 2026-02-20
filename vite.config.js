@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 
 export default defineConfig({
+  base: '/COGnito/',
   server: {
     port: 3000,
     cors: true,
