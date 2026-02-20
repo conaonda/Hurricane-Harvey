@@ -2,7 +2,8 @@ import WebGLTileLayer from 'ol/layer/WebGLTile'
 import GeoTIFFSource from 'ol/source/GeoTIFF'
 import TileGrid from 'ol/tilegrid/TileGrid.js'
 import { transformExtent, transform, get as getProjection } from 'ol/proj'
-import { create as createTransform, set as setTransform } from 'ol/transform.js'
+import { create as createTransform, set as setTransform, setFromArray, invert as invertTransform, apply as applyTransformPt } from 'ol/transform.js'
+import { createOrUpdate as createOrUpdateTileRange } from 'ol/TileRange.js'
 import { fromUrl as tiffFromUrl } from 'geotiff'
 import { patchRendererWithAffine } from './AffineTileLayer.js'
 
@@ -247,6 +248,53 @@ const createCOGSource = (url, bands) => {
   })
 }
 
+/**
+ * 회전된 이미지의 타일 선택 보정.
+ *
+ * 아핀 바이패스에서 타일 그리드는 축 정렬(axis-aligned)이지만 실제 렌더링은
+ * 회전된 위치에 그려진다. OL은 타일의 그리드 위치로 가시성을 판단하므로,
+ * 줌인 시 그리드 위치가 뷰 밖인 타일이 로드되지 않는 문제가 발생한다.
+ *
+ * 해결: pixelToView의 역변환으로 뷰 영역 → 픽셀 영역을 구하고,
+ * 해당 픽셀을 덮는 타일 좌표를 반환하도록 getTileRangeForExtentAndZ를 교체.
+ */
+function patchTileGridForAffine(tileGrid, pixelToView, sourceTileSizes, overviewScales) {
+  const viewToPixel = createTransform()
+  setFromArray(viewToPixel, pixelToView)
+  invertTransform(viewToPixel)
+
+  tileGrid.getTileRangeForExtentAndZ = function (extent, z, opt_tileRange) {
+    // 뷰 영역 4꼭짓점 → 픽셀 좌표로 역변환
+    const c0 = applyTransformPt(viewToPixel, [extent[0], extent[1]])
+    const c1 = applyTransformPt(viewToPixel, [extent[2], extent[1]])
+    const c2 = applyTransformPt(viewToPixel, [extent[2], extent[3]])
+    const c3 = applyTransformPt(viewToPixel, [extent[0], extent[3]])
+
+    const pxMinX = Math.min(c0[0], c1[0], c2[0], c3[0])
+    const pxMinY = Math.min(c0[1], c1[1], c2[1], c3[1])
+    const pxMaxX = Math.max(c0[0], c1[0], c2[0], c3[0])
+    const pxMaxY = Math.max(c0[1], c1[1], c2[1], c3[1])
+
+    // 줌 레벨별 타일 1개가 덮는 full-res 픽셀 크기
+    const sts = sourceTileSizes[z]
+    const srcW = Array.isArray(sts) ? sts[0] : sts
+    const srcH = Array.isArray(sts) ? sts[1] : sts
+    const [scX, scY] = overviewScales[z]
+    const effW = srcW * scX
+    const effH = srcH * scY
+
+    const minX = Math.max(0, Math.floor(pxMinX / effW))
+    const minY = Math.max(0, Math.floor(pxMinY / effH))
+    const maxX = Math.max(0, Math.ceil(pxMaxX / effW) - 1)
+    const maxY = Math.max(0, Math.ceil(pxMaxY / effH) - 1)
+
+    return createOrUpdateTileRange(minX, maxX, minY, maxY, opt_tileRange)
+  }
+
+  // 회전된 뷰에서 OL이 타일 그리드 위치 기반으로 타일을 건너뛰지 않도록
+  tileGrid.tileCoordIntersectsViewport = function () { return true }
+}
+
 export async function createCOGLayer({ url, bands, projectionMode, viewProjection, targetTileSize = 256 }) {
   const tiff = await tiffFromUrl(url)
 
@@ -302,6 +350,7 @@ export async function createCOGLayer({ url, bands, projectionMode, viewProjectio
     const pixelToView = await computePixelToViewAffine(tiff, cogProjection, viewProjection)
     if (pixelToView) {
       patchRendererWithAffine(layer, pixelToView, sourceTileSizes, overviewScales)
+      patchTileGridForAffine(source.tileGrid, pixelToView, sourceTileSizes, overviewScales)
     }
   }
 
