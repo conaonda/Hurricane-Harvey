@@ -53,5 +53,11 @@ export default defineConfig({
   timeout: 120 * 1000,
   expect: {
     timeout: 30000
-  }
+  },
+
+  webServer: {
+    command: 'npm run preview -- --port 4173',
+    port: 4173,
+    reuseExistingServer: !process.env.CI,
+  },
 });

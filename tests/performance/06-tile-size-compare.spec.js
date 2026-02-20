@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { measurePan } from './helpers/measure-pan.js';
 
 test.describe('타일 사이즈 256 vs 512 성능 비교', () => {
 
@@ -67,14 +68,18 @@ test.describe('타일 사이즈 256 vs 512 성능 비교', () => {
         const view = window.map.getView();
         view.animate({ zoom: view.getZoom() + 2, duration: 500 });
       });
-      await page.waitForTimeout(600);
-      // 타일 로딩 대기
-      await page.evaluate(() => {
+      // 줌 애니메이션 완료 대기
+      await page.waitForFunction(() => !window.map.getView().getAnimating(), { timeout: 5000 });
+      // 타일 로딩 대기 (rendercomplete 이벤트 기반, fallback 10초)
+      await page.waitForFunction(() => {
         return new Promise(resolve => {
-          window.map.once('rendercomplete', resolve);
-          setTimeout(resolve, 10000);
+          const map = window.map;
+          if (!map) { resolve(true); return; }
+          map.once('rendercomplete', () => resolve(true));
+          map.renderSync();
+          setTimeout(() => resolve(true), 10000);
         });
-      });
+      }, { timeout: 15000 });
       const zoomEnd = await page.evaluate(() => performance.now());
       const zoomDuration = zoomEnd - zoomStart;
 
@@ -134,71 +139,4 @@ test.describe('타일 사이즈 256 vs 512 성능 비교', () => {
 
 function pad(str, len = 13) {
   return (str + ' '.repeat(len)).slice(0, len);
-}
-
-async function measurePan(page, direction, distance) {
-  const viewport = page.viewportSize();
-  const centerX = viewport.width / 2;
-  const centerY = viewport.height / 2;
-
-  let endX = centerX;
-  let endY = centerY;
-
-  if (direction === 'right') endX += distance;
-  else if (direction === 'left') endX -= distance;
-
-  await page.evaluate(() => {
-    window.__fpsData = [];
-    window.__fpsLastTime = performance.now();
-    window.__fpsFrameCount = 0;
-    window.__fpsMeasuring = true;
-
-    function countFrame() {
-      if (!window.__fpsMeasuring) return;
-      const now = performance.now();
-      const delta = now - window.__fpsLastTime;
-      if (delta >= 100) {
-        window.__fpsData.push(Math.round((window.__fpsFrameCount * 1000) / delta));
-        window.__fpsFrameCount = 0;
-        window.__fpsLastTime = now;
-      }
-      window.__fpsFrameCount++;
-      requestAnimationFrame(countFrame);
-    }
-    requestAnimationFrame(countFrame);
-  });
-
-  const startTime = await page.evaluate(() => performance.now());
-
-  await page.mouse.move(centerX, centerY);
-  await page.mouse.down();
-
-  const steps = 20;
-  for (let i = 1; i <= steps; i++) {
-    const x = centerX + (endX - centerX) * (i / steps);
-    const y = centerY + (endY - centerY) * (i / steps);
-    await page.mouse.move(x, y);
-    await page.waitForTimeout(16);
-  }
-
-  await page.mouse.up();
-  const endTime = await page.evaluate(() => performance.now());
-
-  await page.waitForTimeout(1000);
-  const renderCompleteTime = await page.evaluate(() => performance.now());
-
-  const fpsData = await page.evaluate(() => {
-    window.__fpsMeasuring = false;
-    return window.__fpsData || [];
-  });
-
-  return {
-    totalDuration: renderCompleteTime - startTime,
-    fps: {
-      avg: fpsData.length > 0 ?
-        Math.round(fpsData.reduce((a, b) => a + b, 0) / fpsData.length) : 0,
-      min: fpsData.length > 0 ? Math.min(...fpsData) : 0,
-      max: fpsData.length > 0 ? Math.max(...fpsData) : 0
-    }
-  };
 }

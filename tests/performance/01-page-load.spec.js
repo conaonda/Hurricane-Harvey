@@ -1,13 +1,8 @@
 import { test, expect } from '@playwright/test';
-import { PerformanceMetricsCollector } from './helpers/metrics-collector.js';
 
 test.describe('첫 화면 로딩 성능 측정', () => {
   
   test('초기 페이지 로드 메트릭 측정', async ({ page }) => {
-    const collector = new PerformanceMetricsCollector(page);
-    
-    await collector.startCollection();
-    
     await page.addInitScript(() => {
       window.perfMarks = {};
       

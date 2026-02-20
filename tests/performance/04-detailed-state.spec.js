@@ -71,8 +71,8 @@ test.describe('첫 화면 로딩 완료 후 상태 기록', () => {
     const navigationStart = Date.now();
     await page.goto('/', { waitUntil: 'networkidle' });
     
-    // 추가 안정화 대기 (모든 백그라운드 요청 완료)
-    await page.waitForTimeout(3000);
+    // COG 소스 준비 완료 대기
+    await page.waitForFunction(() => window.cogSource && window.cogSource.getState() === 'ready', { timeout: 30000 });
     
     // 모든 HTTP 요청 완료 대기
     await page.waitForFunction(() => {

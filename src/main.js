@@ -149,13 +149,6 @@ const initMap = async () => {
           padding: [50, 50, 50, 50],
           duration: 1000
         })
-        setTimeout(() => {
-          console.log('[DIAG] view after fit:', {
-            viewResolution: map.getView().getResolution(),
-            zoom: map.getView().getZoom(),
-            center: map.getView().getCenter()
-          })
-        }, 1100)
       }
     } catch (error) {
       console.error('COG load error:', error)

@@ -6,6 +6,31 @@ import { create as createTransform, set as setTransform } from 'ol/transform.js'
 import { fromUrl as tiffFromUrl } from 'geotiff'
 import { patchRendererWithAffine } from './AffineTileLayer.js'
 
+/**
+ * 회전된 GeoTIFF의 4 꼭짓점을 변환하여 정확한 AABB를 소스 CRS에서 계산.
+ * ModelTransformation에 비대각선 항(회전)이 없으면 null 반환.
+ */
+async function computeRotatedSourceExtent(tiff) {
+  const image = await tiff.getImage(0)
+  const mt = image.fileDirectory.getValue('ModelTransformation')
+
+  if (!mt || (mt[1] === 0 && mt[4] === 0)) return null
+
+  const w = image.getWidth()
+  const h = image.getHeight()
+
+  const corners = [[0, 0], [w, 0], [w, h], [0, h]]
+  const transformed = corners.map(([px, py]) => [
+    mt[0] * px + mt[1] * py + mt[3],
+    mt[4] * px + mt[5] * py + mt[7]
+  ])
+
+  const xs = transformed.map(p => p[0])
+  const ys = transformed.map(p => p[1])
+
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]
+}
+
 async function computePixelToViewAffine(tiff, cogProjection, viewProjection) {
   const image = await tiff.getImage(0)
   const mt = image.fileDirectory.getValue('ModelTransformation')
@@ -37,12 +62,6 @@ async function computePixelToViewAffine(tiff, cogProjection, viewProjection) {
     vx0, vy0
   )
 
-  console.log('[DIAG] computePixelToViewAffine:', {
-    mt: [mt[0], mt[1], mt[3], mt[4], mt[5], mt[7]],
-    pixelToView: Array.from(pixelToView),
-    imageSize: [w, h]
-  })
-
   return pixelToView
 }
 
@@ -62,7 +81,10 @@ const applyAffineBypass = (cogSource, cogView, viewProjection, targetTileSize) =
     const srcW = Array.isArray(src) ? src[0] : src
     const srcH = Array.isArray(src) ? src[1] : src
     const factor = Math.max(1, Math.round(targetTileSize / srcW))
-    return [srcW * factor, srcH * factor]
+    // OL GeoTIFF 소스의 타일 그리드가 비정수 타일 사이즈를 반환할 수 있음.
+    // 비정수 사이즈는 TileTexture의 bandCount 계산(Math.floor)에서 밴드 수가
+    // 줄어들어 알파 채널이 누락되고 타일이 투명하게 렌더링됨. 반드시 정수로 반올림.
+    return [Math.round(srcW * factor), Math.round(srcH * factor)]
   })
 
   // 뷰 해상도가 타일 그리드 최저 해상도를 초과해도 렌더링되도록
@@ -144,19 +166,6 @@ const applyAffineBypass = (cogSource, cogView, viewProjection, targetTileSize) =
     mainW / img.getWidth(),
     mainH / img.getHeight()
   ])
-
-  const maxSrcDim = sourceTileSizes.reduce((m, s) => Math.max(m, s[0], s[1]), 0)
-  console.log('[DIAG] applyAffineBypass:', {
-    from: srcProj.getCode(),
-    to: viewProjection,
-    scaleX: scaleX.toFixed(6),
-    dstResolutions,
-    maxViewRes: maxViewRes.toFixed(4),
-    extraLevels: extraCount,
-    maxSourceTileDim: maxSrcDim,
-    transformMatrix: cogSource.transformMatrix,
-    sourceImageryLen: cogSource.sourceImagery_[0]?.length
-  })
 
   return { sourceTileSizes, overviewScales }
 }
@@ -256,28 +265,25 @@ export async function createCOGLayer({ url, bands, projectionMode, viewProjectio
   const cogProjection = cogView.projection
   const cogExtent = cogView.extent
 
-  const imageCount = await tiff.getImageCount()
-  const hasInfinity = stats.some(s => !isFinite(s.min) || !isFinite(s.max))
-  console.log('[DIAG] createCOGLayer:', {
-    imageCount,
-    transformMatrix: source.transformMatrix,
-    statsValid: !hasInfinity,
-    stats,
-    sourceImageryLen: source.sourceImagery_?.[0]?.length
-  })
+  // 회전된 이미지의 실제 AABB 계산 (view.fit 및 layer extent용)
+  const rotatedSrcExtent = await computeRotatedSourceExtent(tiff)
 
   let sourceTileSizes, overviewScales
   if (projectionMode === 'affine') {
+    // 타일 그리드는 비회전 extent 사용 (타일 좌표 생성에 필요)
     const result = applyAffineBypass(source, cogView, viewProjection, targetTileSize)
     sourceTileSizes = result.sourceTileSizes
     overviewScales = result.overviewScales
   }
 
-  const extent = cogExtent ? transformExtent(cogExtent, cogProjection, viewProjection) : undefined
+  // view.fit / layer extent: 회전 AABB가 있으면 사용, 없으면 원본 사용
+  const displayExtentSrc = rotatedSrcExtent || cogExtent
+  const extent = displayExtentSrc ? transformExtent(displayExtentSrc, cogProjection, viewProjection) : undefined
   const center = cogView.center ? transform(cogView.center, cogProjection, viewProjection) : undefined
 
   console.log('COG Info:', {
     cogExtent,
+    displayExtentSrc,
     cogProjection: cogProjection?.getCode(),
     viewExtent: extent,
     viewProjection,
